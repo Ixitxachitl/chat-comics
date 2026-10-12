@@ -1,0 +1,2112 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chat Comics</title>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@700&display=swap" rel="stylesheet">
+<!--
+  CHAT COMICS — OBS Browser Source overlay
+  ------------------------------------------------------------
+  Chat becomes a live comic strip. Every chatter gets their own fuzzy little monster (the same one every
+  time), messages land in speech bubbles, replies and @mentions put both monsters in the same panel, and
+  new panels slide in as the conversation goes on.
+
+  Add as a Browser Source (e.g. 1920x1080), transparent background is automatic.
+
+  SETTINGS: in OBS, right-click this source → Interact, move the mouse over the overlay and
+  click the gear in the bottom-right corner. Settings are saved in this browser source's local
+  storage and applied when you press "Save & apply". (The panel is visible on stream while open.)
+  With no chat source set, demo chat runs so you can see it working.
+
+  Every setting can also be given as a URL parameter, which overrides the saved value — handy for
+  running two copies with different setups. The panel's "Copy setup link" builds that link for you.
+    channel, kick, tiktok (1 = TikFinity), youtube, ytkey, ytpoll, demo, panels, pw, ph, gap, align,
+    vpos, mx, my, title, idle, speed, fs, listeners, crown, captions, maxchars, badges, pronouns,
+    extemotes, events, cmds, firsttime, botlist, ignore        (booleans take 1/0)
+
+  Custom integrations (Streamer.bot, etc.) can also call:
+    window.chatComics.say("name", "message", { color: "#ff00aa", platform: "twitch", replyTo: "othername" })
+-->
+<style>
+  :root{
+    --ink:#111;
+    --pw:300px;
+    --ph:300px;
+    --gap:16px;
+    --mx:30px;
+    --my:30px;
+    --drop:140%;
+  }
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;}
+  #stage{position:fixed;inset:0;pointer-events:none;font-family:'Comic Neue',system-ui,sans-serif;}
+
+  /* ---------- the strip ---------- */
+  #strip{position:absolute;display:flex;flex-direction:column;gap:10px}
+  #strip.v-bottom{bottom:var(--my)}
+  #strip.v-top{top:var(--my)}
+  #strip.a-left{left:var(--mx);align-items:flex-start}
+  #strip.a-right{right:var(--mx);align-items:flex-end}
+  #strip.a-center{left:50%;transform:translateX(-50%);align-items:center}
+  #title{
+    font:28px/1 'Bangers',sans-serif;letter-spacing:1.5px;color:var(--ink);white-space:nowrap;
+    padding:5px 16px 3px;border:4px solid var(--ink);box-shadow:5px 5px 0 var(--ink);
+    background:radial-gradient(circle,rgba(0,0,0,.12) 1.2px,transparent 1.7px) 0 0/8px 8px,#ffe45c;
+    transform:rotate(-2deg);transition:opacity .4s,transform .4s;
+  }
+  #strip.empty #title{opacity:0;transform:rotate(-2deg) translateY(20px)}
+  #title:empty{display:none}
+  #track{display:flex;align-items:flex-start;margin:0 var(--e)}
+
+  .slot{position:relative;flex:none;width:var(--sw);height:calc(var(--ph) + 12px);
+    animation:slotIn .5s cubic-bezier(.3,1.1,.4,1) backwards;transition:width .45s cubic-bezier(.3,1.2,.4,1)}
+  .slot.leaving{animation:slotOut .55s .1s ease-in forwards}
+  @keyframes slotIn{from{width:0}}
+  @keyframes slotOut{to{width:0}}
+
+  .panel{
+    position:absolute;top:0;left:calc(var(--e) * -1);width:calc(var(--sw) + var(--e) * 2);height:var(--ph);--fs:19px;
+    animation:panelIn .6s .08s cubic-bezier(.2,1.45,.4,1) both;
+  }
+  .pin{position:absolute;inset:0;overflow:hidden;will-change:transform;background:#fffdf7}
+  .bgwrap,.pbg{position:absolute;left:0;top:0;pointer-events:none}
+  .pshadow,.pframe{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+  .pframe{z-index:5}
+  .slot.leaving .panel{animation:panelOut .55s ease-in forwards}
+  .slot.drop .panel{animation:panelDrop .75s cubic-bezier(.5,-.35,.8,.6) forwards}
+  @keyframes panelIn{0%{transform:scale(.2) rotate(9deg);opacity:0}100%{transform:none;opacity:1}}
+  @keyframes panelOut{to{transform:translateX(-35%) rotate(-7deg) scale(.7);opacity:0}}
+  @keyframes panelDrop{0%{transform:none}25%{transform:translateY(-6%) rotate(-3deg)}100%{transform:translateY(var(--drop)) rotate(12deg);opacity:0}}
+
+  /* ---------- characters ---------- */
+  .char{position:absolute;bottom:calc(var(--ch) * -.06);width:var(--cw);height:var(--ch);z-index:2;
+    transition:left .45s cubic-bezier(.3,1.3,.5,1)}
+  .char .art{width:100%;height:100%;animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both}
+  .char svg{width:100%;height:100%;display:block;overflow:visible}
+  @keyframes charIn{from{transform:translateY(45%);opacity:0}}
+  .char .bob{animation:breathe 3.4s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%}
+  @keyframes breathe{0%,100%{transform:none}50%{transform:scale(1.02,1.035)}}
+  .char .eyes{animation:blink 4.7s var(--bd,0s) infinite;transform-box:fill-box;transform-origin:center}
+  @keyframes blink{0%,93%,100%{transform:none}96%{transform:scaleY(.1)}}
+  .char .mo{opacity:0}
+  .char.talking .mo{animation:talk .2s infinite alternate}
+  .char.talking .mc{animation:talk .2s infinite alternate-reverse}
+  @keyframes talk{from{opacity:1}to{opacity:0}}
+  .char.hype .art{animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both, hype .42s .55s ease-in-out infinite alternate}
+  @keyframes hype{from{transform:none}to{transform:translateY(-7%) rotate(3deg)}}
+
+  .tag{
+    position:absolute;left:50%;bottom:13%;transform:translateX(-50%) rotate(-3deg);z-index:3;
+    font:15px/1 'Bangers',sans-serif;letter-spacing:1px;white-space:nowrap;max-width:calc(var(--pw) / 2 - 4px);
+    padding:3px 9px 2px 7px;border:3px solid var(--ink);background:var(--c);color:#fff;
+    text-shadow:1.5px 1.5px 0 var(--ink),-1px -1px 0 var(--ink),1px -1px 0 var(--ink),-1px 1px 0 var(--ink);
+    display:flex;align-items:center;gap:4px;box-sizing:border-box;
+  }
+  .tag span.nm{overflow:hidden;text-overflow:ellipsis;padding:0 2px}
+  .tag i{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink);flex:none;display:inline-block}
+  .tag i.twitch{background:#9146ff}
+  .tag i.tiktok{background:linear-gradient(135deg,#25f4ee 50%,#fe2c55 50%)}
+  .tag i.youtube{background:#ff0033}
+  .tag i.kick{background:#53fc18}
+  .tag i.custom{background:#fff}
+  .tag .badges{display:inline-flex;gap:2px;align-items:center;flex:none}
+  .tag .badges img,.tag .badges svg{width:16px;height:16px;display:block}
+  .tag .badges img{filter:drop-shadow(1px 0 0 var(--ink)) drop-shadow(-1px 0 0 var(--ink)) drop-shadow(0 1px 0 var(--ink)) drop-shadow(0 -1px 0 var(--ink))}
+  .tag .pro{font:700 11px/1 'Comic Neue',sans-serif;letter-spacing:0;color:var(--ink);text-shadow:none;flex:none;
+    background:#fff;border:2px solid var(--ink);border-radius:5px;padding:2px 3px 1px}
+
+  /* ---------- captions & splash ---------- */
+  .capbox{
+    position:absolute;left:8px;top:8px;z-index:4;max-width:calc(100% - 16px);box-sizing:border-box;
+    font:700 calc(var(--fs) * .72)/1.15 'Comic Neue',sans-serif;text-transform:uppercase;letter-spacing:.3px;
+    padding:4px 8px;border:3px solid var(--ink);background:#ffe45c;box-shadow:3px 3px 0 var(--ink);
+    animation:capIn .4s cubic-bezier(.2,1.5,.4,1) both;
+  }
+  @keyframes capIn{from{transform:translateX(-30px);opacity:0}}
+  .splash{
+    position:absolute;z-index:4;text-align:center;
+    font:calc(var(--pw) * .16)/1 'Bangers',sans-serif;letter-spacing:2px;color:#fff;
+    -webkit-text-stroke:3px var(--ink);paint-order:stroke fill;text-shadow:4px 4px 0 var(--ink);
+    animation:splashIn .7s .25s cubic-bezier(.2,1.7,.4,1) both, splashPulse .9s 1s ease-in-out infinite alternate;
+  }
+  @keyframes splashIn{0%{transform:scale(0) rotate(-25deg);opacity:0}100%{transform:rotate(-6deg);opacity:1}}
+  @keyframes splashPulse{from{transform:rotate(-6deg)}to{transform:rotate(-4deg) scale(1.06)}}
+
+  /* ---------- speech bubbles ---------- */
+  .bub{position:absolute;z-index:3;animation:popIn .45s cubic-bezier(.2,1.6,.4,1) both;transform-origin:50% 100%}
+  .bub + .bub{z-index:4}
+  @keyframes popIn{0%{transform:scale(0) rotate(-10deg);opacity:0}100%{transform:none;opacity:1}}
+  .bshape{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:0}
+  .face{position:relative;z-index:1;padding:11px 14px 10px;box-sizing:border-box;width:max-content}
+  .txt{font-size:var(--fs);line-height:1.16;color:var(--ink);word-wrap:break-word;overflow-wrap:anywhere}
+  .shout .face{padding:16px 20px 14px}
+  .shout .txt{font:calc(var(--fs) * 1.22)/1.02 'Bangers',sans-serif;letter-spacing:1px}
+  .shout{animation:popIn .4s cubic-bezier(.2,1.8,.4,1) both, shake .16s .4s 8}
+  @keyframes shake{0%,100%{transform:rotate(-1.4deg)}50%{transform:rotate(1.4deg) translate(1px,-1px)}}
+  .thought .face{padding:15px 19px 14px}
+  .thought .txt{font-style:italic}
+  .narr .face{background:#ffe45c;border:3px solid var(--ink);box-shadow:4px 4px 0 var(--ink);padding:6px 10px}
+  .narr .txt{font-size:calc(var(--fs) * .88);font-style:italic}
+  .narr .w.nm{font-style:normal;font-weight:700;color:var(--c2)}
+
+  .w{display:inline-block;opacity:0;transform:translateY(8px) scale(.5);
+    animation:wIn .38s cubic-bezier(.3,1.7,.5,1) forwards;
+    animation-delay:calc(var(--i) * 50ms + 200ms);}
+  @keyframes wIn{to{opacity:1;transform:none}}
+  .w img{height:1.55em;vertical-align:-.42em}
+  .w.em{position:relative}
+  .w .zw{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none}
+  .emoteonly .w img{height:2.4em}
+  .w.giant img{height:3.8em}
+  .w.gif{display:inline-block;margin:3px 0}
+  .w.gif img{display:block;height:auto;max-height:calc(var(--ph) * .3);max-width:calc(var(--pw) * .6);border:3px solid var(--ink);border-radius:6px}
+
+  /* deleted message / banned chatter */
+  .redacted .w{color:transparent;background:#111;border-radius:2px;transition:background .3s}
+  .redacted .w img{visibility:hidden}
+  .redacted .face::after{
+    content:'REDACTED';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-12deg);
+    font:calc(var(--fs) * 1.1)/1 'Bangers',sans-serif;letter-spacing:2px;color:#e8192c;
+    border:3px solid #e8192c;padding:3px 7px 1px;background:rgba(255,255,255,.9);white-space:nowrap;
+    animation:stamp .35s cubic-bezier(.2,1.8,.4,1) both;
+  }
+  @keyframes stamp{from{transform:translate(-50%,-50%) rotate(-12deg) scale(2.4);opacity:0}}
+
+  /* ---------- settings window (only visible while you interact with the source) ---------- */
+  #gear{position:fixed;right:16px;bottom:16px;width:48px;height:48px;border-radius:50%;z-index:1000;
+    border:3px solid var(--ink);background:#fff27a;box-shadow:4px 4px 0 var(--ink);cursor:pointer;
+    display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .25s,transform .15s}
+  body.mouse #gear{opacity:1;pointer-events:auto}
+  #gear:hover{transform:rotate(30deg) scale(1.06)}
+  #gear svg{width:26px;height:26px}
+  #settings{position:fixed;inset:0;z-index:1001;display:none;align-items:center;justify-content:center;
+    background:rgba(12,8,24,.55);pointer-events:auto;font:700 14px/1.3 'Comic Neue',system-ui,sans-serif;color:var(--ink)}
+  #settings.open{display:flex}
+  .sp{width:min(900px,94vw);max-height:92vh;display:flex;flex-direction:column;background:#fff;
+    border:4px solid var(--ink);border-radius:16px;box-shadow:10px 10px 0 #2b9bff;overflow:hidden}
+  .sp-head{padding:14px 20px 10px;border-bottom:4px solid var(--ink);
+    background:radial-gradient(circle,rgba(0,0,0,.12) 1.2px,transparent 1.7px) 0 0/8px 8px,#fff27a}
+  .sp-head h2{margin:0;font:34px/1 'Bangers',sans-serif;letter-spacing:2px;transform:rotate(-1deg)}
+  .sp-head p{margin:6px 0 0;font-size:13px}
+  .sp-body{overflow:auto;padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+  .sp-sec{border:3px solid var(--ink);border-radius:12px;padding:10px 12px 12px;background:#fafaff;box-shadow:4px 4px 0 var(--ink)}
+  .sp-sec h3{margin:-2px 0 8px;font:21px/1 'Bangers',sans-serif;letter-spacing:1.5px;color:#1f6fd6}
+  .sp-f{margin:0 0 10px}
+  .sp-f:last-child{margin-bottom:0}
+  .sp-f label{display:block;margin-bottom:3px}
+  .sp-f input[type=text],.sp-f input[type=password],.sp-f input[type=number],.sp-f textarea,.sp-f select{
+    width:100%;box-sizing:border-box;font:600 14px 'Comic Neue',system-ui,sans-serif;padding:6px 8px;
+    border:2.5px solid var(--ink);border-radius:8px;background:#fff;color:var(--ink)}
+  .sp-f textarea{min-height:58px;resize:vertical}
+  .sp-f input:focus,.sp-f textarea:focus,.sp-f select:focus{outline:3px solid #00e5ff;outline-offset:1px}
+  .sp-f input:disabled,.sp-f textarea:disabled,.sp-f select:disabled{background:#eee;color:#666}
+  .sp-f small{display:block;margin-top:3px;font-weight:700;font-size:12px;color:#555}
+  .sp-f small.url{color:#c2185b}
+  .sp-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .sp-row label{margin:0}
+  .sw{position:relative;width:46px;height:26px;flex:none}
+  .sw input{opacity:0;width:100%;height:100%;margin:0;position:absolute;cursor:pointer;z-index:1}
+  .sw i{position:absolute;inset:0;border:2.5px solid var(--ink);border-radius:20px;background:#ddd;transition:background .15s}
+  .sw i::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+    background:#fff;border:2px solid var(--ink);transition:transform .15s}
+  .sw input:checked + i{background:#39ff88}
+  .sw input:checked + i::after{transform:translateX(19px)}
+  .sw input:disabled + i{opacity:.5}
+  .sp-foot{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 20px;border-top:4px solid var(--ink);background:#eef6ff}
+  .sp-foot .grow{flex:1}
+  .sp-btn{font:19px/1 'Bangers',sans-serif;letter-spacing:1px;padding:8px 14px 7px;border:3px solid var(--ink);
+    border-radius:10px;background:#fff;box-shadow:3px 3px 0 var(--ink);cursor:pointer;color:var(--ink)}
+  .sp-btn:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+  .sp-btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+  .sp-btn.go{background:#39ff88}
+  .sp-btn.warn{background:#ffd0e4}
+  .sp-msg{font-size:13px;color:#1f6fd6;min-height:1em}
+  .sp-link{width:100%;font:12px monospace;padding:6px;border:2px solid var(--ink);border-radius:6px;display:none}
+</style>
+</head>
+<body>
+<div id="stage"><div id="strip" class="empty"><div id="title"></div><div id="track"></div></div></div>
+
+<script>
+(() => {
+  // ---------------- settings (saved locally; URL parameters override) ----------------
+  const STORE_KEY = 'chatComics.settings.v1';
+  const FIELDS = [
+    { sec: 'Chat sources' },
+    { k: 'channel', label: 'Twitch channel', type: 'text', def: '', ph: 'yourchannel', help: 'Read anonymously, no login needed.' },
+    { k: 'kick', label: 'Kick channel', type: 'text', def: '', ph: 'yourchannel', help: 'Read anonymously, no login needed.' },
+    { k: 'tiktok', label: 'TikTok bridge', type: 'text', def: '', ph: '1 = TikFinity, or ws://…', help: 'TikTok needs a local bridge app. "1" uses TikFinity on this PC.' },
+    { k: 'youtube', label: 'YouTube live', type: 'text', def: '', ph: 'video ID / link, or ws://…', help: 'A live video ID or link (needs the API key below), or a bridge address.' },
+    { k: 'ytkey', label: 'YouTube API key', type: 'password', def: '', help: 'YouTube Data API v3 key from Google Cloud Console.' },
+    { k: 'ytpoll', label: 'YouTube check every (s)', type: 'num', def: 6, min: 2, max: 60, step: 1, help: 'Lower = snappier, but uses the daily API quota faster.' },
+    { k: 'demo', label: 'Demo chat', type: 'bool', def: false, help: 'Fake chatters. Also runs on its own when no source is set.' },
+    { sec: 'Comic strip' },
+    { k: 'panels', label: 'Panels in the strip', type: 'num', def: 3, min: 1, max: 8, step: 1 },
+    { k: 'pw', label: 'Panel width (px)', type: 'num', def: 300, min: 140, max: 900, step: 5 },
+    { k: 'ph', label: 'Panel height (px)', type: 'num', def: 300, min: 140, max: 900, step: 5 },
+    { k: 'gap', label: 'Space between panels (px)', type: 'num', def: 16, min: 0, max: 80, step: 1 },
+    { k: 'align', label: 'Strip position', type: 'select', def: 'left', opts: [['left', 'Left'], ['center', 'Center'], ['right', 'Right']] },
+    { k: 'vpos', label: 'Strip edge', type: 'select', def: 'bottom', opts: [['bottom', 'Bottom'], ['top', 'Top']] },
+    { k: 'mx', label: 'Distance from the side (px)', type: 'num', def: 30, min: -100, max: 1900, step: 1 },
+    { k: 'my', label: 'Distance from the top/bottom (px)', type: 'num', def: 30, min: -100, max: 1000, step: 1 },
+    { k: 'title', label: 'Strip title', type: 'text', def: '', ph: 'e.g. The {channel} Chronicles', help: 'Shown above the strip. {channel} becomes your channel name. Leave empty for none.' },
+    { k: 'idle', label: 'Clear after a quiet spell (s)', type: 'num', def: 60, min: 0, max: 3600, step: 5, help: 'The strip falls away when chat goes quiet. 0 = never.' },
+    { sec: 'Story' },
+    { k: 'speed', label: 'Pace ×', type: 'num', def: 1, min: 0.3, max: 4, step: 0.1, help: 'Higher = messages land faster. Busy chats are sampled, not queued forever.' },
+    { k: 'fs', label: 'Text size (px)', type: 'num', def: 19, min: 11, max: 48, step: 1, help: 'Long messages shrink to fit their panel.' },
+    { k: 'listeners', label: 'Bring in a listener', type: 'bool', def: true, help: 'Someone who just spoke shows up next to the new speaker, so panels look like conversations.' },
+    { k: 'captions', label: '"Meanwhile…" captions', type: 'bool', def: true },
+    { k: 'crown', label: 'Crown for the streamer', type: 'bool', def: true },
+    { k: 'maxchars', label: 'Max message length', type: 'num', def: 140, min: 20, max: 500, step: 5 },
+    { k: 'badges', label: 'Show badges', type: 'bool', def: true, help: 'Twitch and Kick badges; owner / mod / member / sub / follower badges on YouTube and TikTok.' },
+    { k: 'pronouns', label: 'Show pronouns', type: 'bool', def: true, help: 'Twitch chatters who set them on pronouns.alejo.io.' },
+    { k: 'extemotes', label: 'BTTV / FFZ / 7TV emotes', type: 'bool', def: true },
+    { k: 'events', label: 'Splash panels for subs, gifts, raids & bits', type: 'bool', def: true, help: 'Twitch only.' },
+    { sec: 'Filtering' },
+    { k: 'cmds', label: 'Show !commands', type: 'bool', def: false },
+    { k: 'firsttime', label: 'Show first-time chatters', type: 'bool', def: false, help: 'Twitch flags these; spam bots usually show up this way.' },
+    { k: 'botlist', label: 'Hide known bots', type: 'bool', def: true, help: 'Public TwitchInsights list (needs the overlay hosted, not a local file).' },
+    { k: 'ignore', label: 'Always hide these users', type: 'area', def: 'nightbot, streamelements, streamlabs, moobot, fossabot, wizebot', help: 'Comma or line separated.' },
+  ];
+  const FIELD = Object.fromEntries(FIELDS.filter(f => f.k).map(f => [f.k, f]));
+  const Q = new URLSearchParams(location.search);
+  function coerce(f, v) {
+    if (f.type === 'bool') return v === true || v === 1 || /^(1|true|yes|on)$/i.test(String(v));
+    if (f.type === 'num') { const n = parseFloat(v); return isNaN(n) ? f.def : Math.min(f.max, Math.max(f.min, n)); }
+    if (f.type === 'select') return f.opts.some(o => o[0] === v) ? v : f.def;
+    return String(v ?? '');
+  }
+  let saved = {}, storageOK = true;
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { storageOK = false; }
+  const fromURL = {};
+  for (const f of Object.values(FIELD)) if (Q.has(f.k)) fromURL[f.k] = coerce(f, Q.get(f.k));
+  const S = {};
+  for (const f of Object.values(FIELD)) S[f.k] = f.k in fromURL ? fromURL[f.k] : f.k in saved ? coerce(f, saved[f.k]) : f.def;
+
+  const tk = S.tiktok.trim();
+  const CFG = {
+    channel: S.channel.replace(/^#/, '').toLowerCase().trim(),
+    kick: S.kick.trim().replace(/^.*kick\.com\//i, '').replace(/[/?#].*$/, '').toLowerCase(),
+    tiktok: tk === '1' ? 'ws://localhost:21213/' : tk,
+    youtube: S.youtube.trim(),
+    ytkey: S.ytkey.trim(),
+    ytpoll: S.ytpoll * 1000,
+    panels: Math.round(S.panels),
+    pw: S.pw,
+    ph: S.ph,
+    gap: S.gap,
+    idle: S.idle * 1000,
+    speed: S.speed,
+    fs: S.fs,
+    listeners: S.listeners,
+    captions: S.captions,
+    crown: S.crown,
+    maxChars: S.maxchars,
+    ignore: new Set(S.ignore.toLowerCase().split(/[\s,]+/).filter(Boolean)),
+    cmds: S.cmds,
+    botlist: S.botlist,
+    extemotes: S.extemotes,
+    pronouns: S.pronouns,
+    badges: S.badges,
+    firsttime: S.firsttime,
+    events: S.events,
+  };
+  CFG.demo = S.demo || (!CFG.channel && !CFG.kick && !CFG.tiktok && !CFG.youtube);
+
+  const root = document.documentElement;
+  root.style.setProperty('--pw', CFG.pw + 'px');
+  root.style.setProperty('--ph', CFG.ph + 'px');
+  root.style.setProperty('--gap', CFG.gap + 'px');
+  root.style.setProperty('--mx', S.mx + 'px');
+  root.style.setProperty('--my', S.my + 'px');
+  root.style.setProperty('--drop', S.vpos === 'top' ? '-160%' : '160%');
+
+  const stage = document.getElementById('stage');
+  const strip = document.getElementById('strip');
+  const track = document.getElementById('track');
+  strip.classList.add('v-' + S.vpos, 'a-' + S.align);
+  const titleText = S.title.replace(/\{channel\}/gi, CFG.channel || CFG.kick || 'Chat').trim();
+  document.getElementById('title').textContent = titleText;
+
+  // ---------------- small helpers ----------------
+  function hash(str) {
+    let h = 2166136261;
+    for (const ch of str) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const pick = (R, arr) => arr[Math.floor(R() * arr.length)];
+  const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const hsl = (h, s, l, a = 1) => `hsla(${((h % 360) + 360) % 360},${s}%,${l}%,${a})`;
+  function hexToHsl(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    let r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    let h = 0, s = 0; const l = (mx + mn) / 2;
+    if (mx !== mn) {
+      const d = mx - mn;
+      s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn);
+      h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h *= 60;
+    }
+    return [h, s * 100, l * 100];
+  }
+  // lighten (f > 0) or darken (f < 0) a #rrggbb colour
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16), t = f < 0 ? 0 : 255, p = Math.abs(f);
+    const c = [n >> 16 & 255, n >> 8 & 255, n & 255].map(v => Math.round((t - v) * p + v));
+    return '#' + ((1 << 24) | (c[0] << 16) | (c[1] << 8) | c[2]).toString(16).slice(1);
+  }
+  function palette(name, color) {
+    const seed = hash(name.toLowerCase());
+    let h, s, l;
+    const fromHex = hexToHsl(color);
+    if (fromHex) { [h, s, l] = fromHex; s = clamp(s, 50, 90); l = clamp(l, 46, 62); }
+    else { h = seed % 360; s = 70 + (seed >>> 9) % 20; l = 50 + (seed >>> 14) % 10; }
+    return {
+      main: hsl(h, s, l),
+      light: hsl(h, s, clamp(l + 16, 60, 82)),
+      dark: hsl(h, s * .85, clamp(l - 18, 22, 44)),
+      dot: hsl(h, s, l, .2),
+      acc: hsl(h + 150, 80, 58),
+      accD: hsl(h + 150, 70, 38),
+      accL: hsl(h + 150, 90, 80),
+    };
+  }
+
+  // ---------------- character art ----------------
+  // Every chatter is a fuzzy little monster drawn from a seed of their name, so they look the same
+  // every time (and on every platform). Their fur is their chat colour, and the face changes with
+  // the mood of what they said.
+  const INK = '#111';
+  const IRIS = ['#3fa9ff', '#ff5fa8', '#8b6cff', '#35c46a', '#ffb02e', '#ff6a3c', '#2bd4c9', '#6b4bff'];
+  const BODIES = {
+    round: { W: 42, T: 22, n: 2.2, flare: 6 },
+    tall:  { W: 37, T: 16, n: 2.1, flare: 7 },
+    wide:  { W: 47, T: 28, n: 2.7, flare: 4 },
+    pear:  { W: 35, T: 21, n: 2.0, flare: 16 },
+  };
+
+  // points listed clockwise on screen; each hop is an arc that bulges outward
+  const scallop = (pts, r) => `M${pts[0]} ` + pts.slice(1).map(p => `A${r} ${r} 0 0 1 ${p}`).join(' ');
+  const f1 = (v) => +v.toFixed(1);
+
+  // The body outline: straight-ish sides and a superellipse dome, re-sampled evenly and drawn
+  // as a row of tiny bumps so it reads as fur.
+  function furPath(b, step) {
+    const cy = 72, raw = [[50 - b.W - b.flare, 132]];
+    for (let i = 0; i <= 40; i++) {
+      const a = Math.PI * (1 + i / 40), c = Math.cos(a), s = Math.sin(a);
+      raw.push([50 + b.W * Math.sign(c) * Math.abs(c) ** (2 / b.n), cy + (cy - b.T) * Math.sign(s) * Math.abs(s) ** (2 / b.n)]);
+    }
+    raw.push([50 + b.W + b.flare, 132]);
+    // walk the outline and drop a point every `step` units
+    const pts = [raw[0]];
+    let carry = 0;
+    for (let i = 1; i < raw.length; i++) {
+      const [x0, y0] = raw[i - 1], [x1, y1] = raw[i];
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      let d = step - carry;
+      while (d <= len) { const t = d / len; pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]); d += step; }
+      carry = len - (d - step);
+    }
+    const last = raw[raw.length - 1];
+    pts.push(last);
+    return scallop(pts.map(p => f1(p[0]) + ' ' + f1(p[1])), f1(step * .62)) + ` L${f1(last[0])} 140 L${f1(raw[0][0])} 140Z`;
+  }
+
+  const specCache = new Map();
+  function charSpec(name) {
+    const key = name.toLowerCase();
+    let s = specCache.get(key);
+    if (s) return s;
+    const R = rng(hash('monster:' + key));
+    s = {
+      body: pick(R, ['round', 'round', 'tall', 'wide', 'pear']),
+      eyes: pick(R, [2, 2, 2, 2, 1, 3]),
+      iris: pick(R, IRIS),
+      sleepy: R() < .22,
+      top: pick(R, ['horns', 'antennae', 'bunny', 'cat', 'tuft', 'floppy', 'unihorn', 'none', 'horns', 'tuft', 'cat']),
+      mouth: pick(R, ['smile', 'cat', 'smile']),
+      teeth: pick(R, ['none', 'fang', 'fangs', 'buck', 'none', 'fang']),
+      nose: pick(R, ['pom', 'none', 'tri', 'pom', 'none']),
+      belly: R() < .55,
+      spots: R() < .3,
+      acc: R() < .4 ? pick(R, ['bow', 'flower', 'glasses', 'headphones', 'partyhat']) : null,
+      fuzz: 4.2 + R() * 2.2,
+      tilt: (R() - .5) * 7,
+      seed: Math.floor(R() * 1e9),
+    };
+    s.stalks = s.eyes === 2 && R() < .2;
+    if (s.acc === 'glasses' && (s.eyes !== 2 || s.stalks)) s.acc = 'bow';
+    if (s.acc === 'partyhat' && (s.top === 'unihorn' || s.top === 'bunny' || s.top === 'antennae')) s.acc = 'flower';
+    s.path = furPath(BODIES[s.body], s.fuzz);
+    specCache.set(key, s);
+    if (specCache.size > 3000) specCache.delete(specCache.keys().next().value);
+    return s;
+  }
+
+  let svgUid = 0;
+  function charSVG(spec, pal, o) {
+    const id = 'cs' + (++svgUid);
+    const expr = o.expr || 'talk', look = o.look || 0;
+    const b = BODIES[spec.body], T = b.T, W = b.W;
+    const fur = pal.main, furD = pal.dark, furL = pal.light, acc = pal.acc, accD = pal.accD;
+    const st = `stroke="${INK}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"`;
+    const dark = '#4a1020', tongue = '#ff7b98';
+    let back = '', front = '';
+
+    // ---- things behind the body (their bases get covered by the fur) ----
+    switch (spec.top) {
+      case 'horns':
+        back += `<path d="M${50 - W * .55} ${T + 10} Q${50 - W * .78} ${T - 8} ${50 - W * .5} ${T - 16} Q${50 - W * .5} ${T - 2} ${50 - W * .25} ${T + 6}Z" fill="${acc}" ${st}/>`
+          + `<path d="M${50 + W * .55} ${T + 10} Q${50 + W * .78} ${T - 8} ${50 + W * .5} ${T - 16} Q${50 + W * .5} ${T - 2} ${50 + W * .25} ${T + 6}Z" fill="${acc}" ${st}/>`;
+        break;
+      case 'unihorn':
+        back += `<path d="M43 ${T + 6} L50 ${T - 22} L57 ${T + 6}Z" fill="${acc}" ${st}/><path d="M46 ${T - 4} L54 ${T - 7} M44.5 ${T + 2} L55.5 ${T - 2}" stroke="${INK}" stroke-width="2"/>`;
+        break;
+      case 'antennae':
+        back += `<path d="M42 ${T + 6} Q38 ${T - 8} 32 ${T - 17} M58 ${T + 6} Q62 ${T - 8} 68 ${T - 17}" fill="none" stroke="${INK}" stroke-width="3"/>`
+          + `<circle cx="32" cy="${T - 18}" r="4.8" fill="${acc}" ${st}/><circle cx="68" cy="${T - 18}" r="4.8" fill="${acc}" ${st}/>`
+          + `<circle cx="30.6" cy="${T - 19.5}" r="1.4" fill="#fff"/><circle cx="66.6" cy="${T - 19.5}" r="1.4" fill="#fff"/>`;
+        break;
+      case 'bunny':
+        back += `<g transform="rotate(-14 ${50 - W * .45} ${T + 8})"><ellipse cx="${50 - W * .45}" cy="${T - 12}" rx="8" ry="20" fill="${fur}" ${st}/><ellipse cx="${50 - W * .45}" cy="${T - 11}" rx="4" ry="14" fill="#ffb3c9"/></g>`
+          + `<g transform="rotate(14 ${50 + W * .45} ${T + 8})"><ellipse cx="${50 + W * .45}" cy="${T - 12}" rx="8" ry="20" fill="${fur}" ${st}/><ellipse cx="${50 + W * .45}" cy="${T - 11}" rx="4" ry="14" fill="#ffb3c9"/></g>`;
+        break;
+      case 'cat':
+        back += `<path d="M${50 - W * .85} ${T + 16} L${50 - W * .78} ${T - 12} L${50 - W * .2} ${T + 4}Z M${50 + W * .85} ${T + 16} L${50 + W * .78} ${T - 12} L${50 + W * .2} ${T + 4}Z" fill="${fur}" ${st}/>`
+          + `<path d="M${50 - W * .74} ${T + 10} L${50 - W * .7} ${T - 4} L${50 - W * .38} ${T + 6}Z M${50 + W * .74} ${T + 10} L${50 + W * .7} ${T - 4} L${50 + W * .38} ${T + 6}Z" fill="#ffb3c9"/>`;
+        break;
+      case 'tuft':
+        back += `<path d="M38 ${T + 8} Q38 ${T - 8} 44 ${T - 14} Q44 ${T - 4} 48 ${T - 2} Q48 ${T - 16} 55 ${T - 20} Q53 ${T - 8} 56 ${T - 2} Q60 ${T - 10} 66 ${T - 10} Q60 ${T} 62 ${T + 8}Z" fill="${fur}" ${st}/>`;
+        break;
+      case 'floppy':
+        back += `<ellipse cx="${50 - W - 3}" cy="${T + 30}" rx="9" ry="19" transform="rotate(22 ${50 - W - 3} ${T + 30})" fill="${furD}" ${st}/>`
+          + `<ellipse cx="${50 + W + 3}" cy="${T + 30}" rx="9" ry="19" transform="rotate(-22 ${50 + W + 3} ${T + 30})" fill="${furD}" ${st}/>`;
+        break;
+    }
+    if (spec.acc === 'headphones') back += `<path d="M${50 - W - 3} ${T + 34} C${50 - W} ${T - 24} ${50 + W} ${T - 24} ${50 + W + 3} ${T + 34}" fill="none" stroke="${INK}" stroke-width="8"/><path d="M${50 - W - 3} ${T + 34} C${50 - W} ${T - 24} ${50 + W} ${T - 24} ${50 + W + 3} ${T + 34}" fill="none" stroke="${acc}" stroke-width="3.6"/>`;
+
+    // ---- eyes (ping-pong eyes with anime sparkle; lids do the acting) ----
+    const ey = T + 14;
+    let eyes = [];
+    if (spec.stalks) eyes = [[33, T - 12, 10], [67, T - 12, 10]];
+    else if (spec.eyes === 1) eyes = [[50, ey + 1, 15]];
+    else if (spec.eyes === 3) eyes = [[50 - W * .48, ey + 2, 8.5], [50, ey - 3, 9], [50 + W * .48, ey + 2, 8.5]];
+    else { const dx = Math.min(15, W * .38); eyes = [[50 - dx, ey, 12], [50 + dx, ey, 12]]; }
+    if (spec.stalks) back += eyes.map(([x, y]) => `<path d="M${x < 50 ? 42 : 58} ${T + 8} Q${x < 50 ? 38 : 62} ${T - 2} ${x} ${y}" fill="none" stroke="${INK}" stroke-width="8" stroke-linecap="round"/><path d="M${x < 50 ? 42 : 58} ${T + 8} Q${x < 50 ? 38 : 62} ${T - 2} ${x} ${y}" fill="none" stroke="${fur}" stroke-width="3.6" stroke-linecap="round"/>`).join('');
+
+    let eyeSvg = '';
+    eyes.forEach(([cx, cy, r], i) => {
+      const inner = cx < 50 ? 1 : cx > 50 ? -1 : 0;   // which way is the middle of the face
+      if (expr === 'laugh') {
+        eyeSvg += `<path d="M${f1(cx - r * .75)} ${f1(cy + 2)} Q${cx} ${f1(cy - r * .8)} ${f1(cx + r * .75)} ${f1(cy + 2)}" fill="none" stroke="${INK}" stroke-width="3.2" stroke-linecap="round"/>`;
+        return;
+      }
+      const sr = expr === 'shout' || expr === 'wow' ? r * 1.08 : r;
+      let g = `<circle cx="${cx}" cy="${cy}" r="${f1(sr)}" fill="#fff"/>`;
+      if (expr === 'love') {
+        const hr = r * .62;
+        g += `<path d="M${cx} ${f1(cy + hr)} C${f1(cx - hr * 1.9)} ${f1(cy - hr * .2)} ${f1(cx - hr * .8)} ${f1(cy - hr * 1.6)} ${cx} ${f1(cy - hr * .55)} C${f1(cx + hr * .8)} ${f1(cy - hr * 1.6)} ${f1(cx + hr * 1.9)} ${f1(cy - hr * .2)} ${cx} ${f1(cy + hr)}Z" fill="#ff3b6b" stroke="${INK}" stroke-width="1.6"/>`;
+      } else {
+        const small = expr === 'wow' || expr === 'shout';
+        const lx = expr === 'think' ? r * .25 : look * r * .28, ly = expr === 'think' ? -r * .3 : expr === 'sad' ? r * .15 : 0;
+        const ix = cx + lx, iy = cy + ly, k = small ? .55 : 1;
+        g += `<ellipse cx="${f1(ix)}" cy="${f1(iy)}" rx="${f1(r * .6 * k)}" ry="${f1(r * .7 * k)}" fill="${spec.iris}"/>`
+          + `<ellipse cx="${f1(ix)}" cy="${f1(iy + r * .06)}" rx="${f1(r * .34 * k)}" ry="${f1(r * .42 * k)}" fill="${INK}"/>`
+          + `<circle cx="${f1(ix - r * .22 * k)}" cy="${f1(iy - r * .3 * k)}" r="${f1(r * .22 * (small ? .8 : 1))}" fill="#fff"/>`
+          + `<circle cx="${f1(ix + r * .2 * k)}" cy="${f1(iy + r * .24 * k)}" r="${f1(r * .1)}" fill="#fff"/>`;
+        if (expr === 'sad') g += `<circle cx="${f1(ix + r * .18)}" cy="${f1(iy - r * .05)}" r="${f1(r * .14)}" fill="#fff"/>`;
+      }
+      // eyelid: a slab of fur across the top of the eye
+      let lid = null;
+      if (expr === 'angry') lid = inner ? [cy - r * .75, cy - r * .05] : [cy - r * .7, cy - r * .1, cy - r * .7];
+      else if (expr === 'sad') lid = inner ? [cy - r * .25, cy - r * .85] : [cy - r * .25, cy - r * .8, cy - r * .25];
+      else if (expr === 'puzzled' && i === eyes.length - 1) lid = [cy - r * .35, cy - r * .35];
+      else if (spec.sleepy && expr !== 'shout' && expr !== 'wow' && expr !== 'love') lid = [cy - r * .3, cy - r * .3];
+      if (lid) {
+        let line;
+        if (lid.length === 3) line = `M${cx - r - 2} ${f1(lid[0])} L${cx} ${f1(lid[1])} L${cx + r + 2} ${f1(lid[2])}`;
+        else {
+          const [outer, inn] = lid;
+          const yl = inner >= 0 ? outer : inn, yr = inner >= 0 ? inn : outer;
+          line = `M${cx - r - 2} ${f1(yl)} L${cx + r + 2} ${f1(yr)}`;
+        }
+        g += `<g clip-path="url(#${id}e${i})"><path d="${line} V${cy - r - 4} H${cx - r - 2}Z" fill="${fur}" stroke="${INK}" stroke-width="2.4"/></g>`;
+        eyeSvg += `<clipPath id="${id}e${i}"><circle cx="${cx}" cy="${cy}" r="${f1(sr)}"/></clipPath>`;
+      }
+      eyeSvg += `<g class="eye">${g}<circle cx="${cx}" cy="${cy}" r="${f1(sr)}" fill="none" stroke="${INK}" stroke-width="2.6"/></g>`;
+    });
+
+    // ---- mouth: a closed frame and an open frame, swapped while talking ----
+    // Open mouths are a dark hole with the tongue and teeth clipped to it, so they always sit
+    // inside the lips. Fangs on closed mouths hang from the exact curve of the lip line.
+    const my = T + (spec.eyes === 1 ? 42 : 38) - (spec.stalks ? 8 : 0), mw = W * .58;
+    const x0 = 50 - mw, x1 = 50 + mw;
+    const qy = (y0, c, y1, t) => (1 - t) * (1 - t) * y0 + 2 * t * (1 - t) * c + t * t * y1; // quadratic curve height
+    let mid = 0;
+    const line = (d) => `<path d="${d}" fill="none" stroke="${INK}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>`;
+    const hole = (d, inner = '') => {
+      const cid = `${id}m${++mid}`;
+      return `<clipPath id="${cid}"><path d="${d}"/></clipPath><path d="${d}" fill="${dark}"/>`
+        + `<g clip-path="url(#${cid})">${inner}</g><path d="${d}" fill="none" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/>`;
+    };
+    const tongueAt = (cy, rx, ry) => `<ellipse cx="50" cy="${f1(cy)}" rx="${f1(rx)}" ry="${f1(ry)}" fill="${tongue}"/><path d="M50 ${f1(cy - ry * .7)} V${f1(cy + ry * .2)}" stroke="#d94a6c" stroke-width="1.4" stroke-linecap="round"/>`;
+    // upper teeth: a white band under the top lip, with a line along its lower edge
+    const teethBand = (yBottom) => `<rect x="0" y="${f1(yBottom - 24)}" width="100" height="24" fill="#fff"/><path d="M0 ${f1(yBottom)} H100" stroke="${INK}" stroke-width="1.5"/>`;
+    const fang = (fx, fy, s = 1) => `<path d="M${f1(fx - 3 * s)} ${f1(fy - 1.2)} L${f1(fx + 3 * s)} ${f1(fy - 1.2)} L${f1(fx)} ${f1(fy + 5.5 * s)}Z" fill="#fff" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    const buck = (y) => `<path d="M44.5 ${f1(y - 1.2)} h11 v6.5 q0 1.2 -1.2 1.2 h-8.6 q-1.2 0 -1.2 -1.2Z M50 ${f1(y - 1)} v7.5" fill="#fff" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    // teeth for a lip line whose height at x is lipY(x)
+    const teethOn = (lipY, fx = mw * .45) => {
+      if (spec.teeth === 'fang') return fang(50 + fx, lipY(50 + fx));
+      if (spec.teeth === 'fangs') return fang(50 - fx, lipY(50 - fx)) + fang(50 + fx, lipY(50 + fx));
+      if (spec.teeth === 'buck') return buck(lipY(50));
+      return '';
+    };
+
+    // closed smile (plain curve, or a cat-like "ω")
+    let smile, smileY;
+    if (spec.mouth === 'cat') {
+      const xa = 50 - mw * .62;
+      smile = line(`M${f1(xa)} ${my} Q${f1(50 - mw * .31)} ${my + 7} 50 ${my} Q${f1(50 + mw * .31)} ${my + 7} ${f1(100 - xa)} ${my}`);
+      smileY = (x) => qy(my, my + 7, my, clamp(Math.abs(x - 50) < .01 ? 1 : (Math.min(x, 100 - x) - xa) / (50 - xa), 0, 1));
+    } else {
+      smile = line(`M${f1(x0)} ${my} Q50 ${f1(my + mw * .5)} ${f1(x1)} ${my}`);
+      smileY = (x) => qy(my, my + mw * .5, my, (x - x0) / (x1 - x0));
+    }
+    const closedSmile = smile + teethOn(smileY, spec.mouth === 'cat' ? mw * .31 : mw * .45);
+
+    // open talking mouth: gently curved top lip, deep bottom
+    const openMouth = (ct, cb, withTeeth = true) => {
+      const topY = (x) => qy(my, ct, my, (x - x0) / (x1 - x0));
+      const bottom = (my + cb) / 2;
+      return hole(`M${f1(x0)} ${my} Q50 ${f1(ct)} ${f1(x1)} ${my} Q50 ${f1(cb)} ${f1(x0)} ${my}Z`,
+        tongueAt(bottom - (bottom - my) * .12, mw * .44, (bottom - my) * .42) + (withTeeth ? teethOn(topY) : ''));
+    };
+    const openTalk = openMouth(my + mw * .12, my + mw * 1.05);
+
+    let mc, mo;
+    switch (expr) {
+      case 'laugh': {
+        const big = (cb) => {
+          const top = my - 2, bottom = (top + cb) / 2;
+          return hole(`M${f1(x0)} ${top} Q50 ${my + 2} ${f1(x1)} ${top} Q50 ${f1(cb)} ${f1(x0)} ${top}Z`,
+            teethBand(my + mw * .16) + tongueAt(bottom - (bottom - top) * .1, mw * .52, (bottom - top) * .4));
+        };
+        mc = big(my + mw * 1.3); mo = big(my + mw * 1.05);
+        break;
+      }
+      case 'shout': {
+        const big = (k) => {
+          const xl = 50 - mw * .85 * k, xr = 50 + mw * .85 * k, top = my - 2, deep = my + mw * 1.4 * k;
+          return hole(`M${f1(xl)} ${top} Q50 ${my - 8} ${f1(xr)} ${top} Q${f1(50 + mw * k)} ${f1(deep - 2)} 50 ${f1(deep)} Q${f1(50 - mw * k)} ${f1(deep - 2)} ${f1(xl)} ${top}Z`,
+            teethBand(my + 3) + tongueAt(deep - mw * .14 * k, mw * .48 * k, mw * .26 * k));
+        };
+        mc = big(1); mo = big(.84);
+        break;
+      }
+      case 'wow': {
+        const o = (rx, ry) => {
+          const cy = my + 5;
+          return hole(`M${f1(50 - rx)} ${cy} A${f1(rx)} ${f1(ry)} 0 1 0 ${f1(50 + rx)} ${cy} A${f1(rx)} ${f1(ry)} 0 1 0 ${f1(50 - rx)} ${cy}Z`,
+            tongueAt(cy + ry * .75, rx * .75, ry * .45));
+        };
+        mc = o(mw * .32, mw * .44); mo = o(mw * .26, mw * .34);
+        break;
+      }
+      case 'sad': {
+        mc = line(`M${f1(50 - mw * .6)} ${f1(my + 8)} Q${f1(50 - mw * .3)} ${f1(my + 1)} 50 ${f1(my + 3)} Q${f1(50 + mw * .3)} ${f1(my + 1)} ${f1(50 + mw * .6)} ${f1(my + 8)}`);
+        mo = hole(`M${f1(50 - mw * .55)} ${f1(my + 9)} Q50 ${f1(my - 4)} ${f1(50 + mw * .55)} ${f1(my + 9)}Z`, tongueAt(my + 9, mw * .3, 3));
+        break;
+      }
+      case 'angry': {
+        const zx = [], n = 6;
+        for (let i = 0; i <= n; i++) zx.push(`${f1(50 - mw * .75 + mw * 1.5 * i / n)} ${f1(my + (i % 2 ? 7.5 : 2.5))}`);
+        mc = mo = `<rect x="${f1(50 - mw * .75)}" y="${f1(my - 1)}" width="${f1(mw * 1.5)}" height="12" rx="5" fill="#fff" stroke="${INK}" stroke-width="2.6"/>`
+          + `<path d="M${zx.join(' L')}" fill="none" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`;
+        break;
+      }
+      case 'puzzled': mc = mo = line(`M${f1(50 - mw * .55)} ${f1(my + 4)} q${f1(mw * .18)} -5 ${f1(mw * .36)} 0 t${f1(mw * .36)} 0 t${f1(mw * .36)} 0`); break;
+      case 'think': mc = mo = line(`M${f1(50 - mw * .1)} ${f1(my + 5)} L${f1(50 + mw * .45)} ${f1(my + 2)}`); break;
+      default: mc = closedSmile; mo = openTalk;
+    }
+
+    // ---- assemble ----
+    const R = rng(spec.seed);
+    let body = `<path d="${spec.path}" fill="${fur}" ${st}/>`;
+    if (spec.belly) body += `<ellipse cx="50" cy="${f1(T + 96)}" rx="${f1(W * .62)}" ry="30" fill="${furL}" opacity=".85"/>`;
+    if (spec.spots) for (let i = 0; i < 3; i++) {
+      const sx = 50 + (i % 2 ? 1 : -1) * W * (.55 + R() * .25), sy = T + 50 + R() * 40;
+      body += `<ellipse cx="${f1(sx)}" cy="${f1(sy)}" rx="${f1(3.5 + R() * 3)}" ry="${f1(3 + R() * 2.5)}" fill="${furD}" opacity=".55"/>`;
+    }
+    // a few fur flicks
+    for (let i = 0; i < 5; i++) {
+      const fx = 50 + (R() - .5) * W * 1.5, fy = T + 46 + R() * 50;
+      body += `<path d="M${f1(fx - 3)} ${f1(fy)} q2 -4 3 0 q1 -4 3 0" fill="none" stroke="${furD}" stroke-width="1.7" stroke-linecap="round" opacity=".55"/>`;
+    }
+    const blush = expr === 'laugh' || expr === 'love' || expr === 'shout' ? .5 : .28;
+    const cheek = `<ellipse cx="${f1(50 - W * .62)}" cy="${f1(my - 2)}" rx="6" ry="3.6" fill="#ff6f91" opacity="${blush}"/><ellipse cx="${f1(50 + W * .62)}" cy="${f1(my - 2)}" rx="6" ry="3.6" fill="#ff6f91" opacity="${blush}"/>`;
+    let nose = '';
+    const ny = Math.min((ey + 11 + my) / 2 - 1, my - 11);
+    if (spec.nose === 'pom') nose = `<circle cx="50" cy="${f1(ny)}" r="4.8" fill="${acc}" ${st}/><circle cx="48.4" cy="${f1(ny - 1.6)}" r="1.4" fill="#fff" opacity=".8"/>`;
+    if (spec.nose === 'tri') nose = `<path d="M46.5 ${f1(ny - 2)} H53.5 L50 ${f1(ny + 2.5)}Z" fill="${INK}" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round"/>`;
+
+    switch (spec.acc) {
+      case 'bow': front += `<g transform="translate(${f1(50 + W * .66)} ${T + 1}) rotate(22)"><path d="M0 0 L12 -7 L12 7Z M0 0 L-12 -7 L-12 7Z" fill="#ff4f9a" ${st}/><circle r="3.4" fill="#ff4f9a" ${st}/></g>`; break;
+      case 'flower': front += `<g transform="translate(${f1(50 - W * .72)} ${T - 1})">${[0, 72, 144, 216, 288].map(a => `<circle cx="${f1(6 * Math.cos(a * Math.PI / 180))}" cy="${f1(6 * Math.sin(a * Math.PI / 180))}" r="4.6" fill="#fff" ${st}/>`).join('')}<circle r="3.6" fill="#ffd23f" ${st}/></g>`; break;
+      case 'glasses': front += `<g fill="none" stroke="${INK}" stroke-width="2.6">${eyes.map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r + 3.5}"/>`).join('')}<path d="M${eyes[0][0] + 14.5} ${ey - 1} Q50 ${ey - 5} ${eyes[1][0] - 14.5} ${ey - 1}"/></g>`; break;
+      case 'headphones': front += `<rect x="${f1(50 - W - 9)}" y="${T + 24}" width="12" height="22" rx="5" fill="${acc}" ${st}/><rect x="${f1(50 + W - 3)}" y="${T + 24}" width="12" height="22" rx="5" fill="${acc}" ${st}/>`; break;
+      case 'partyhat': if (!o.crown) front += `<g transform="rotate(-12 50 ${T + 2})"><path d="M38 ${T + 4} L50 ${T - 26} L62 ${T + 4}Z" fill="${acc}" ${st}/><path d="M42.5 ${T - 6} L57.5 ${T - 6} M46 ${T - 15} L54 ${T - 15}" stroke="#fff" stroke-width="3"/><circle cx="50" cy="${T - 27}" r="4" fill="#ffd23f" ${st}/></g>`; break;
+    }
+    // mood marks
+    const mark = (x, y) => `<path d="M${x} ${y - 6} Q${x + 1} ${y - 1} ${x + 6} ${y} Q${x + 1} ${y + 1} ${x} ${y + 6} Q${x - 1} ${y + 1} ${x - 6} ${y} Q${x - 1} ${y - 1} ${x} ${y - 6}Z" fill="#fff" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    if (expr === 'laugh' || expr === 'love') front += mark(f1(50 + W + 6), T + 2) + mark(f1(50 - W - 4), T + 12);
+    if (expr === 'sad' && eyes.length) { const [x, y, r] = eyes[0]; front += `<path d="M${f1(x - r * .4)} ${f1(y + r + 1)} Q${f1(x - r * .4 - 4)} ${f1(y + r + 8)} ${f1(x - r * .4)} ${f1(y + r + 10)} Q${f1(x - r * .4 + 4)} ${f1(y + r + 8)} ${f1(x - r * .4)} ${f1(y + r + 1)}Z" fill="#7fd3ff" stroke="${INK}" stroke-width="1.6"/>`; }
+    if (expr === 'puzzled') front += `<path d="M${f1(50 + W + 2)} ${T + 2} Q${f1(50 + W - 3)} ${T + 10} ${f1(50 + W + 2)} ${T + 12} Q${f1(50 + W + 7)} ${T + 10} ${f1(50 + W + 2)} ${T + 2}Z" fill="#7fd3ff" stroke="${INK}" stroke-width="1.6"/>`;
+    if (expr === 'angry') front += `<path d="M${f1(50 + W - 6)} ${T - 2} Q${f1(50 + W - 2)} ${T + 2} ${f1(50 + W - 6)} ${T + 6} M${f1(50 + W + 4)} ${T - 2} Q${f1(50 + W)} ${T + 2} ${f1(50 + W + 4)} ${T + 6} M${f1(50 + W - 5)} ${T - 3} Q${f1(50 + W - 1)} ${T + 1} ${f1(50 + W + 3)} ${T - 3} M${f1(50 + W - 5)} ${T + 7} Q${f1(50 + W - 1)} ${T + 3} ${f1(50 + W + 3)} ${T + 7}" fill="none" stroke="#e8192c" stroke-width="2.4" stroke-linecap="round"/>`;
+    if (expr === 'wow' || expr === 'shout') front += `<path d="M${f1(50 - W - 4)} ${T + 4} l-7 -6 M${f1(50 - W)} ${T - 3} l-4 -9 M${f1(50 + W + 4)} ${T + 4} l7 -6 M${f1(50 + W)} ${T - 3} l4 -9" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`;
+    if (o.crown) {
+      const up = T - 24 - (spec.top === 'tuft' || spec.top === 'unihorn' ? 10 : spec.stalks ? 0 : 0);
+      front += `<g transform="translate(0 ${up})"><path d="M34 26 L36 8 L43 16 L50 3 L57 16 L64 8 L66 26Z" fill="#ffd23f" ${st}/><circle cx="50" cy="20" r="2.6" fill="#e8192c" stroke="${INK}" stroke-width="1.5"/><circle cx="40.5" cy="21.5" r="2" fill="#2b9bff" stroke="${INK}" stroke-width="1.5"/><circle cx="59.5" cy="21.5" r="2" fill="#39d36b" stroke="${INK}" stroke-width="1.5"/></g>`;
+    }
+
+    return `<svg viewBox="-6 -10 112 136" xmlns="http://www.w3.org/2000/svg">`
+      + `<g class="bob"><g transform="rotate(${f1(spec.tilt + look * 3)} 50 130)">`
+      + back
+      + `<g class="bod">${body}</g>`
+      + cheek + nose
+      + `<g class="eyes">${eyeSvg}</g>`
+      + `<g class="mc">${mc}</g><g class="mo">${mo}</g>`
+      + front
+      + `</g></g></svg>`;
+  }
+
+  // ---------------- moods ----------------
+  const MOODS = [
+    ['laugh', /\b(lo+l+|lmf?a+o+|rofl|ha(ha)+h?|he(he)+|kek|kekw|xd+|lul|lulw|omegalul|icant|pepela)\b|😂|🤣|😆|😹|😄|😁/i],
+    ['love', /\b(love|ily|cute|a+w+|wholesome)\b|<3|❤|💖|💕|💗|😍|🥰|😻|♥/i],
+    ['sad', /\b(sad|rip|no+o|sorry|cry|crying|sadge|biblethump|pepehands|unlucky)\b|😭|😢|☹|🙁|😞|💔|^\s*f+\s*$/i],
+    ['angry', /\b(wtf|mad|angry|rage|madge|dammit|ugh+|smh|grr+)\b|😡|🤬|😠|💢/i],
+    ['wow', /\b(omg|wow|whoa|woah|pog|pogchamp|poggers|pogu|no way|holy|wait what|insane|clutch)\b|😮|😱|🤯|😲|‼/i],
+    ['puzzled', /\?\s*$|\b(hm+|huh|what|confused|wait)\b|🤔/i],
+  ];
+  function moodOf(tokens, kind) {
+    const text = tokens.map(t => t.t === 'text' ? t.v : (t.code || '')).join(' ');
+    let m = 'talk';
+    for (const [name, re] of MOODS) if (re.test(text)) { m = name; break; }
+    if (kind === 'shout') return m === 'angry' || m === 'sad' ? 'angry' : 'shout';
+    if (kind === 'thought') return 'think';
+    return m;
+  }
+
+  // ---------------- chatters ----------------
+  const chatters = new Map(); // key -> { key, name, platform, color, badges, pal, owner, pron, pronP }
+  const byName = new Map();   // lowercased name -> key
+  function upsertChatter({ name, login, platform, color, badges }) {
+    const key = platform + ':' + (login || name).toLowerCase();
+    let c = chatters.get(key);
+    if (!c) {
+      c = { key, name, login: (login || name).toLowerCase(), platform };
+      chatters.set(key, c);
+      if (chatters.size > 3000) chatters.delete(chatters.keys().next().value);
+      if (platform === 'twitch' && CFG.pronouns) c.pronP = pronounsFor(c.login).then(p => (c.pron = p));
+    }
+    if (name) c.name = name;
+    if (color || !c.pal) { c.color = color || c.color; c.pal = palette(c.name, c.color); }
+    if (badges) { c.badges = badges; c.owner = badges.some(b => b.role === 'owner'); }
+    if (platform === 'twitch' && c.login === CFG.channel) c.owner = true;
+    if (platform === 'kick' && c.login === CFG.kick) c.owner = true;
+    byName.set(c.name.toLowerCase(), key);
+    byName.set(c.login, key);
+    return key;
+  }
+
+  // ---------------- words ----------------
+  function toWords(tokens) {
+    const words = [];
+    let chars = 0, cut = false;
+    for (const t of tokens) {
+      if (cut) break;
+      if (t.t === 'emote' || t.t === 'gif') {
+        const last = words[words.length - 1];
+        if (t.zw && last && last.t === 'emote') { (last.over = last.over || []).push(t.url); continue; } // 7TV/BTTV zero-width
+        words.push({ ...t }); chars += 2; continue;
+      }
+      for (const w of t.v.split(/\s+/).filter(Boolean)) {
+        if (chars + w.length > CFG.maxChars) {
+          const room = CFG.maxChars - chars;
+          if (room > 3) words.push({ t: 'text', v: Array.from(w).slice(0, room).join('') + '…' });
+          else words.push({ t: 'text', v: '…' });
+          cut = true; break;
+        }
+        words.push({ t: 'text', v: w });
+        chars += w.length + 1;
+      }
+    }
+    return words;
+  }
+  // drop a leading "@name" (replies and mentions are shown by who's in the panel instead)
+  function stripMention(tokens, name) {
+    const first = tokens[0];
+    if (!first || first.t !== 'text') return tokens;
+    const re = new RegExp('^\\s*@?' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[,:]?\\s*', 'i');
+    const v = first.v.replace(re, '');
+    if (v === first.v) return tokens;
+    return v.trim() ? [{ t: 'text', v }, ...tokens.slice(1)] : tokens.slice(1);
+  }
+
+  // ---------------- manga backgrounds ----------------
+  // Ink-and-screentone backdrops. Moody messages get the classic manga effects (speed lines for
+  // shouting, gloom lines for sad, a flaming aura for angry…); ordinary chat gets a bit of scenery.
+  const SCENES = ['city', 'room', 'street', 'sky', 'city', 'room', 'street'];
+  const MOOD_BG = { shout: 'speed', wow: 'speed', laugh: 'rays', love: 'sparkle', sad: 'gloom', angry: 'flame', puzzled: 'swirl', think: 'swirl' };
+  let bgUid = 0;
+  function mangaBg(style, W, H, cx, hue, seed) {
+    const R = rng(seed), id = 'mg' + (++bgUid), fx = (v) => v.toFixed(1);
+    const paper = hsl(hue, 70, 95), tint = hsl(hue, 60, 84);
+    const cy = H * .62, big = Math.hypot(W, H);
+    // screentone: dots that fade out down (or up) the panel
+    const tone = (from, to, op = .5, size = 6, r = 1.25) =>
+      `<pattern id="${id}d${size}" width="${size}" height="${size}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="#111"/></pattern>`
+      + `<linearGradient id="${id}g${from}" x1="0" y1="0" x2="0" y2="1"><stop offset="${from}" stop-color="#fff"/><stop offset="${to}" stop-color="#fff" stop-opacity="0"/></linearGradient>`
+      + `<mask id="${id}m${from}"><rect width="${W}" height="${H}" fill="url(#${id}g${from})"/></mask>`
+      + `<rect width="${W}" height="${H}" fill="url(#${id}d${size})" mask="url(#${id}m${from})" opacity="${op}"/>`;
+    const ink = (d, w = 1.8, extra = '') => `<path d="${d}" fill="none" stroke="#111" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${extra}/>`;
+    const sparkle = (x, y, s) => `<path d="M${fx(x)} ${fx(y - s)} Q${fx(x + s * .15)} ${fx(y - s * .15)} ${fx(x + s)} ${fx(y)} Q${fx(x + s * .15)} ${fx(y + s * .15)} ${fx(x)} ${fx(y + s)} Q${fx(x - s * .15)} ${fx(y + s * .15)} ${fx(x - s)} ${fx(y)} Q${fx(x - s * .15)} ${fx(y - s * .15)} ${fx(x)} ${fx(y - s)}Z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/>`;
+    const cloud = (x, y, s) => {
+      const pts = [];
+      for (let i = 0; i <= 7; i++) { const a = Math.PI * (1 + i / 7); pts.push(fx(x + Math.cos(a) * s * 1.6) + ' ' + fx(y + Math.sin(a) * s * .8)); }
+      return `<path d="${scallop(pts, fx(s * .55))} Z" fill="#fff" stroke="#111" stroke-width="1.6"/>`;
+    };
+    let s = `<rect width="${W}" height="${H}" fill="${paper}"/>`;
+
+    switch (style) {
+      case 'speed': {   // focus lines rushing in toward the speaker
+        s = `<rect width="${W}" height="${H}" fill="#fff"/>`;
+        let d = '';
+        for (let i = 0; i < 150; i++) {
+          const a = (i / 150 + R() * .006) * Math.PI * 2, r0 = big * (.2 + R() * .17), r1 = big * 1.1, w = .007 + R() * .016;
+          d += `M${fx(cx + Math.cos(a) * r0)} ${fx(cy + Math.sin(a) * r0)} L${fx(cx + Math.cos(a - w) * r1)} ${fx(cy + Math.sin(a - w) * r1)} L${fx(cx + Math.cos(a + w) * r1)} ${fx(cy + Math.sin(a + w) * r1)}Z`;
+        }
+        s += `<rect width="${W}" height="${H}" fill="${tint}" opacity=".35"/><path d="${d}" fill="#111"/>`;
+        break;
+      }
+      case 'rays': {    // happy sunburst lines and a few sparkles
+        let d = '';
+        for (let i = 0; i < 48; i++) {
+          const a = (i / 48) * Math.PI * 2, r0 = big * .16, r1 = big * (.5 + R() * .5);
+          d += `M${fx(cx + Math.cos(a) * r0)} ${fx(cy + Math.sin(a) * r0)} L${fx(cx + Math.cos(a) * r1)} ${fx(cy + Math.sin(a) * r1)}`;
+        }
+        s += ink(d, 1.3, 'opacity=".55"') + tone(.0, .45, .25);
+        for (let i = 0; i < 5; i++) s += sparkle(W * (.15 + R() * .7), H * (.08 + R() * .4), 5 + R() * 6);
+        break;
+      }
+      case 'sparkle': { // shoujo bubbles and sparkles
+        s = `<rect width="${W}" height="${H}" fill="${hsl(335, 90, 95)}"/>` + tone(.0, .55, .3, 7, 1.5);
+        for (let i = 0; i < 16; i++) {
+          const x = R() * W, y = R() * H * .75, r = 5 + R() * 16;
+          s += `<circle cx="${fx(x)}" cy="${fx(y)}" r="${fx(r)}" fill="#fff" fill-opacity=".7" stroke="#111" stroke-width="1.3"/>`
+            + `<path d="M${fx(x - r * .55)} ${fx(y - r * .1)} A${fx(r * .6)} ${fx(r * .6)} 0 0 1 ${fx(x - r * .1)} ${fx(y - r * .55)}" fill="none" stroke="#111" stroke-width="1.1"/>`;
+        }
+        for (let i = 0; i < 6; i++) s += sparkle(R() * W, R() * H * .7, 4 + R() * 7);
+        break;
+      }
+      case 'gloom': {   // dark screentone and hanging vertical lines
+        s = `<rect width="${W}" height="${H}" fill="${hsl(220, 30, 90)}"/>` + tone(.0, .85, .75, 5, 1.5);
+        let d = '';
+        for (let x = 2; x < W; x += 3 + R() * 5) d += `M${fx(x)} 0 V${fx(H * (.15 + R() * .6))}`;
+        s += ink(d, 1.1, 'opacity=".8"');
+        break;
+      }
+      case 'flame': {   // a rage aura: black with licking flames
+        s = `<rect width="${W}" height="${H}" fill="#151515"/><rect width="${W}" height="${H}" fill="#e8192c" opacity=".22"/>`;
+        let d = '';
+        for (let i = 0; i < 9; i++) {
+          const x = W * (i / 8) + (R() - .5) * 20, h = H * (.45 + R() * .45), wd = 20 + R() * 26;
+          d += `M${fx(x - wd)} ${H + 4} C${fx(x - wd)} ${fx(H - h * .5)} ${fx(x + wd * .2)} ${fx(H - h * .6)} ${fx(x + (R() - .5) * 14)} ${fx(H - h)}`
+            + ` C${fx(x + wd * .9)} ${fx(H - h * .55)} ${fx(x + wd * .2)} ${fx(H - h * .35)} ${fx(x + wd)} ${H + 4}`;
+        }
+        s += `<path d="${d}" fill="#fff" fill-opacity=".06" stroke="#fff" stroke-width="2" stroke-opacity=".85"/>`;
+        break;
+      }
+      case 'swirl': {   // a dizzy spiral
+        let d = '';
+        const sx = cx + (R() - .5) * W * .3, sy = H * (.25 + R() * .15);
+        for (let i = 0; i <= 260; i++) {
+          const a = i / 260 * Math.PI * 14, r = i / 260 * big * .75;
+          d += (i ? 'L' : 'M') + fx(sx + Math.cos(a) * r) + ' ' + fx(sy + Math.sin(a) * r);
+        }
+        s += tone(.0, .7, .3) + ink(d, 1.6, 'opacity=".35"');
+        break;
+      }
+      case 'flash': {   // the classic white flash burst, for events
+        s = `<rect width="${W}" height="${H}" fill="#ff9a1f"/>` + tone(0, 1, .35, 6, 1.6);
+        let pts = '';
+        const n = 70;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2, r = i % 2 ? big * (.14 + R() * .08) : big * (.32 + R() * .3);
+          pts += fx(cx + Math.cos(a) * r) + ',' + fx(cy + Math.sin(a) * r * .9) + ' ';
+        }
+        s += `<polygon points="${pts}" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/>`;
+        break;
+      }
+      case 'city': {    // skyline behind the characters
+        const base = H * (.66 + R() * .06);
+        s += tone(0, .5, .35);
+        let x = -10;
+        while (x < W + 10) {
+          const bw = 24 + R() * 40, bh = H * (.14 + R() * .3);
+          s += `<rect x="${fx(x)}" y="${fx(base - bh)}" width="${fx(bw)}" height="${fx(bh)}" fill="${paper}" stroke="#111" stroke-width="1.6"/>`;
+          for (let wy = base - bh + 7; wy < base - 6; wy += 10) for (let wx = x + 5; wx < x + bw - 7; wx += 9)
+            if (R() < .6) s += `<rect x="${fx(wx)}" y="${fx(wy)}" width="4" height="5" fill="#111" opacity="${R() < .3 ? .15 : .7}"/>`;
+          x += bw + R() * 6;
+        }
+        s += ink(`M0 ${fx(base)} H${W}`, 2);
+        if (R() < .6) s += cloud(W * (.2 + R() * .6), H * (.14 + R() * .1), 13 + R() * 7);
+        break;
+      }
+      case 'room': {    // wall, window and floor
+        const floor = H * (.7 + R() * .05), left = R() < .5;
+        const ww = W * (.28 + R() * .1), wh = H * (.28 + R() * .08), wx = left ? W * .14 : W * .86 - ww, wy = H * .12;
+        s += tone(.0, .9, .18, 7, 1.2);
+        s += `<rect x="${fx(wx)}" y="${fx(wy)}" width="${fx(ww)}" height="${fx(wh)}" fill="#fff" stroke="#111" stroke-width="2.2"/>`
+          + cloud(wx + ww * .45, wy + wh * .55, ww * .14)
+          + ink(`M${fx(wx + ww / 2)} ${fx(wy)} V${fx(wy + wh)} M${fx(wx)} ${fx(wy + wh / 2)} H${fx(wx + ww)}`, 2)
+          + `<rect x="${fx(wx - 5)}" y="${fx(wy + wh)}" width="${fx(ww + 10)}" height="5" fill="${paper}" stroke="#111" stroke-width="1.8"/>`;
+        // a poster on the other side
+        if (R() < .7) { const px = left ? W * .6 : W * .16, pw = W * .14; s += `<rect x="${fx(px)}" y="${fx(H * .14)}" width="${fx(pw)}" height="${fx(pw * 1.3)}" fill="#fff" stroke="#111" stroke-width="1.6" transform="rotate(${fx((R() - .5) * 8)} ${fx(px + pw / 2)} ${fx(H * .14)})"/>`; }
+        let d = `M0 ${fx(floor)} H${W}`;
+        for (let i = -6; i <= 6; i++) d += `M${fx(cx + i * W * .05)} ${fx(floor)} L${fx(cx + i * W * .22)} ${H}`;
+        s += ink(d, 1.3, 'opacity=".7"');
+        break;
+      }
+      case 'street': {  // power pole and sagging wires
+        const pole = R() < .5 ? W * (.12 + R() * .1) : W * (.78 + R() * .1), horizon = H * (.7 + R() * .05);
+        s += tone(0, .5, .3);
+        s += cloud(W * (.25 + R() * .5), H * (.2 + R() * .08), 15 + R() * 7);
+        s += `<rect x="${fx(pole - 4)}" y="-5" width="8" height="${H + 10}" fill="${paper}" stroke="#111" stroke-width="1.8"/>`
+          + `<rect x="${fx(pole - 22)}" y="${fx(H * .1)}" width="44" height="5" fill="${paper}" stroke="#111" stroke-width="1.6"/>`;
+        let d = '';
+        for (let k = 0; k < 3; k++) {
+          const y = H * .1 + 2 + k * 3, far = pole < W / 2 ? W + 20 : -20;
+          d += `M${fx(pole + (k - 1) * 16)} ${fx(y)} Q${fx((pole + far) / 2)} ${fx(y + H * .12 + k * 4)} ${fx(far)} ${fx(y + H * .03)}`;
+        }
+        d += `M0 ${fx(horizon)} H${W}`;
+        s += ink(d, 1.2);
+        break;
+      }
+      default: {        // 'sky': big clouds and a couple of birds
+        s += tone(0, .65, .4);
+        for (let i = 0; i < 3; i++) s += cloud(W * (.15 + R() * .7), H * (.14 + R() * .3), 15 + R() * 12);
+        for (let i = 0; i < 2; i++) { const bx = W * (.2 + R() * .6), by = H * (.08 + R() * .15); s += ink(`M${fx(bx - 6)} ${fx(by)} Q${fx(bx - 3)} ${fx(by - 4)} ${fx(bx)} ${fx(by)} Q${fx(bx + 3)} ${fx(by - 4)} ${fx(bx + 6)} ${fx(by)}`, 1.5); }
+      }
+    }
+    return `<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="pbg"><defs></defs>${s}</svg>`;
+  }
+
+  // ---------------- panels ----------------
+  // A panel holds up to two characters and two bubbles. New messages join the newest panel when
+  // they fit (same people, room left, not too long ago), otherwise a fresh panel slides in and the
+  // oldest one slides out.
+  const panels = [];
+  let lastSpeaker = null, lastPanelAt = 0, storyStarted = false, freshStrip = true;
+  const prevPanel = (p) => { const i = panels.indexOf(p); return panels[(i < 0 ? panels.length : i) - 1]; };
+  function sideIn(p, key) {
+    const c = p && p.chars.length === 2 && p.chars.find(x => x.key === key);
+    return c ? c.side : null;
+  }
+  const other = (side) => side === 'L' ? 'R' : 'L';
+
+  // Panels come in different widths, and the gutter between two neighbours can lean either way.
+  // Both panels share that slanted edge, so the strip still fits together like a comic page.
+  const SLANT = CFG.ph * .17;
+  const EDGE = SLANT / 2 + CFG.gap / 2 + 8;   // how far a panel's shape can reach past its slot
+  root.style.setProperty('--e', EDGE + 'px');
+  const pickSlant = () => Math.random() < .25 ? 0 : (Math.random() < .5 ? -1 : 1) * SLANT * (.45 + Math.random() * .55);
+  const NS = 'http://www.w3.org/2000/svg';
+  function setGeom(p) {
+    const E = EDGE, w = p.w, H = CFG.ph, h2 = CFG.gap / 2;
+    p.slot.style.setProperty('--sw', w + 'px');
+    const BW = Math.ceil(w + 2 * E);
+    if (p.bgW !== BW) { p.bgW = BW; p.bg.innerHTML = mangaBg(p.bgStyle, BW, H, E + w / 2, p.hue, p.bgSeed); }
+    const pts = [[E + p.dl / 2 + h2, 0], [E + w + p.dr / 2 - h2, 0], [E + w - p.dr / 2 - h2, H], [E - p.dl / 2 + h2, H]];
+    p.pin.style.clipPath = `polygon(${pts.map(([x, y]) => `${x.toFixed(1)}px ${y}px`).join(',')})`;
+    const poly = pts.map(([x, y]) => x.toFixed(1) + ',' + y).join(' ');
+    for (const s of [p.shadow, p.frame]) { s.setAttribute('width', w + 2 * E + 12); s.setAttribute('height', H + 12); }
+    p.shadow.innerHTML = `<polygon points="${poly}" transform="translate(7 7)" fill="#111"/>`;
+    p.frame.innerHTML = `<polygon points="${poly}" fill="none" stroke="#111" stroke-width="5" stroke-linejoin="round"/>`;
+    // the inside edges of the panel at height y
+    p.L = (y) => E + p.dl / 2 - p.dl * (y / H) + h2 + 3;
+    p.R = (y) => E + w + p.dr / 2 - p.dr * (y / H) - h2 - 3;
+  }
+
+  function newPanel(keys, opts = {}) {
+    const prev = panels.filter(x => !x.dead).pop();
+    const slot = document.createElement('div'); slot.className = 'slot';
+    const el = document.createElement('div'); el.className = 'panel';
+    const pin = document.createElement('div'); pin.className = 'pin';
+    el.style.setProperty('--fs', CFG.fs + 'px');
+    const shadow = document.createElementNS(NS, 'svg'); shadow.setAttribute('class', 'pshadow');
+    const frame = document.createElementNS(NS, 'svg'); frame.setAttribute('class', 'pframe');
+    el.append(shadow, pin, frame);
+    slot.appendChild(el);
+    track.appendChild(slot);
+    const wide = opts.splash ? 1.2 + Math.random() * .12 : keys.length === 2 ? 1.02 + Math.random() * .26 : .74 + Math.random() * .2;
+    const p = { slot, el, pin, shadow, frame, chars: [], bubbles: [], last: Date.now(), sealed: !!opts.sealed, off: (Math.random() - .5) * .14,
+      w: Math.round(CFG.pw * wide), dl: prev ? prev.dr : pickSlant(), dr: pickSlant(),
+      bgStyle: opts.bg || rnd(SCENES), hue: Math.floor(Math.random() * 360), bgSeed: Math.floor(Math.random() * 1e9) };
+    p.bg = document.createElement('div'); p.bg.className = 'bgwrap';
+    pin.appendChild(p.bg);
+    setGeom(p);
+    if (opts.caption) {
+      p.cap = document.createElement('div'); p.cap.className = 'capbox'; p.cap.textContent = opts.caption;
+      pin.appendChild(p.cap);
+    }
+    if (opts.splash) {
+      p.splash = document.createElement('div'); p.splash.className = 'splash'; p.splash.textContent = opts.splash;
+      pin.appendChild(p.splash);
+    }
+    if (keys.length === 2) {
+      const s0 = sideIn(prev, keys[0]) || (sideIn(prev, keys[1]) ? other(sideIn(prev, keys[1])) : 'L');
+      addChar(p, keys[0], s0); addChar(p, keys[1], other(s0));
+    } else addChar(p, keys[0], 'C');
+    panels.push(p);
+    strip.classList.remove('empty');
+    // retire the oldest panels
+    const live = panels.filter(x => !x.dead);
+    for (let i = 0; i < live.length - CFG.panels; i++) retire(live[i], 'leaving');
+    return p;
+  }
+  function retire(p, how) {
+    if (p.dead) return;
+    p.dead = true;
+    p.slot.classList.add(how);
+    setTimeout(() => {
+      p.slot.remove();
+      const i = panels.indexOf(p); if (i >= 0) panels.splice(i, 1);
+      if (!panels.some(x => !x.dead)) strip.classList.add('empty');
+    }, how === 'drop' ? 800 : 700);
+  }
+
+  function addChar(p, key, side) {
+    const who = chatters.get(key);
+    if (p.chars.length === 1 && p.chars[0].side === 'C') {
+      const e = p.chars[0], before = prevPanel(p);
+      e.side = sideIn(before, e.key) || (side && side !== 'C' ? other(side) : 'L');
+      side = other(e.side);
+    }
+    const c = { key, side, expr: 'talk', el: document.createElement('div'), art: document.createElement('div') };
+    c.el.className = 'char';
+    c.art.className = 'art';
+    c.el.style.setProperty('--bd', (-Math.random() * 4).toFixed(2) + 's');
+    c.el.style.setProperty('--c', who.pal.main);
+    c.el.appendChild(c.art);
+    // name tag
+    const tag = document.createElement('div'); tag.className = 'tag';
+    const dot = document.createElement('i'); dot.className = who.platform;
+    tag.appendChild(dot);
+    if (CFG.badges && who.badges && who.badges.length) {
+      const bw = document.createElement('span'); bw.className = 'badges';
+      who.badges.slice(0, 3).forEach(b => { const el = badgeEl(b); if (el) bw.appendChild(el); });
+      tag.appendChild(bw);
+    }
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = who.name;
+    tag.appendChild(nm);
+    const addPro = (t) => {
+      if (!t || tag.querySelector('.pro')) return;
+      const pr = document.createElement('span'); pr.className = 'pro'; pr.textContent = t; tag.appendChild(pr);
+    };
+    if (who.pron) addPro(who.pron); else if (who.pronP) who.pronP.then(addPro);
+    c.el.appendChild(tag);
+    p.pin.appendChild(c.el);
+    p.chars.push(c);
+    return c;
+  }
+  function removeChar(p, c) {
+    c.el.remove();
+    p.chars.splice(p.chars.indexOf(c), 1);
+    if (p.chars.length === 1) p.chars[0].side = 'C';
+  }
+  function drawChar(c, p) {
+    const who = chatters.get(c.key);
+    const look = p.chars.length === 2 ? (c.side === 'L' ? 1 : -1) : 0;
+    const sig = c.expr + look;
+    if (c.sig === sig) return;
+    c.sig = sig;
+    c.art.innerHTML = charSVG(charSpec(who.name), who.pal, { expr: c.expr, look, crown: CFG.crown && who.owner });
+  }
+
+  function addBubble(p, it) {
+    const who = chatters.get(it.who);
+    const words = it.kind === 'narr' ? [{ t: 'text', v: who.name, nm: true }, ...toWords(it.tokens)] : toWords(it.tokens);
+    const el = document.createElement('div');
+    el.className = 'bub' + (it.kind ? ' ' + it.kind : '');
+    el.style.setProperty('--c', who.pal.main);
+    el.style.setProperty('--c2', who.pal.dark);
+    el.style.setProperty('--dot', who.pal.dot);
+    const face = document.createElement('div'); face.className = 'face';
+    const txt = document.createElement('div'); txt.className = 'txt';
+    if (words.length && words.every(w => w.t === 'emote')) el.classList.add('emoteonly');
+    const b = { el, face, txt, key: it.who, kind: it.kind || 'speech', msgId: it.msgId, p };
+    words.forEach((w, i) => {
+      const s = document.createElement('span');
+      s.className = 'w' + (w.nm ? ' nm' : '');
+      s.style.setProperty('--i', i);
+      if (w.t === 'emote' || w.t === 'gif') {
+        s.classList.add(w.t === 'gif' ? 'gif' : 'em');
+        if (w.giant) s.classList.add('giant');
+        const img = document.createElement('img');
+        img.src = w.url; img.alt = w.code || '';
+        img.onload = () => relayout(p);               // images change the bubble size once loaded
+        img.onerror = () => { s.textContent = w.code || ''; relayout(p); };
+        s.appendChild(img);
+        (w.over || []).forEach(u => {
+          const z = document.createElement('img'); z.src = u; z.className = 'zw'; z.alt = '';
+          s.appendChild(z);
+        });
+      } else s.textContent = w.v;
+      txt.appendChild(s);
+      txt.appendChild(document.createTextNode(' '));
+    });
+    face.appendChild(txt);
+    if (b.kind !== 'narr') {
+      b.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      b.svg.setAttribute('class', 'bshape');
+      el.appendChild(b.svg);
+    }
+    el.appendChild(face);
+    p.pin.appendChild(el);
+    p.bubbles.push(b);
+    b.words = words.length;
+    return b;
+  }
+  function removeBubble(p, b) { b.el.remove(); p.bubbles.splice(p.bubbles.indexOf(b), 1); }
+
+  // Shrink the text box to its widest line: browsers otherwise keep the full max width after
+  // wrapping, leaving a blank strip on the right of the bubble.
+  function fitText(b) {
+    b.txt.style.width = '';
+    let right = 0;
+    for (const w of b.txt.children) right = Math.max(right, w.offsetLeft + w.offsetWidth);
+    if (right) b.txt.style.width = Math.ceil(right - b.txt.offsetLeft + 1) + 'px';
+  }
+
+  // Lays out characters and bubbles; returns the text size it had to use.
+  function layoutPanel(p) {
+    const H = CFG.ph - 4; // inside the frame
+    const n = p.chars.length;
+    const ch = H * .62, cw = ch * 112 / 136;
+    p.el.style.setProperty('--ch', ch + 'px');
+    p.el.style.setProperty('--cw', cw + 'px');
+    const yb = H * .8, Lb = p.L(yb), span = p.R(yb) - Lb;
+    for (const c of p.chars) {
+      c.x = Lb + span * (n === 1 ? .5 + p.off : c.side === 'L' ? .27 : .73);
+      c.el.style.left = (c.x - cw / 2) + 'px';
+      c.headTop = H + ch * .06 - ch + ch * (33 / 136);
+      drawChar(c, p);
+    }
+    let top = 9;
+    if (p.cap) {
+      p.cap.style.left = (Math.max(p.L(top), p.L(top + 40)) + 4) + 'px';
+      p.cap.style.maxWidth = (Math.min(p.R(top), p.R(top + 40)) - Math.max(p.L(top), p.L(top + 40)) - 8) + 'px';
+      top += p.cap.offsetHeight + 7;
+    }
+    if (p.splash) {
+      p.splash.style.top = (top - 4) + 'px';
+      p.splash.style.left = p.L(top + 20) + 'px';
+      p.splash.style.width = (p.R(top + 20) - p.L(top + 20)) + 'px';
+      top += p.splash.offsetHeight + 4;
+    }
+    const bottom = Math.min(...p.chars.map(c => c.headTop)) - 16;
+    const area = bottom - top;
+    // narrowest the inside gets across the bubble area
+    const W = Math.min(p.R(top) - p.L(top), p.R(bottom) - p.L(bottom));
+    const list = p.bubbles;
+    let fs = CFG.fs, total = 0;
+    for (; ; fs--) {
+      p.el.style.setProperty('--fs', fs + 'px');
+      total = 0;
+      for (const b of list) {
+        b.face.style.maxWidth = (b.kind === 'narr' ? W - 12 : n === 2 ? W * .8 : W - 20) + 'px';
+        fitText(b);
+        total += b.face.offsetHeight + (b.kind === 'shout' ? 18 : 0); // spikes stick out past the box
+      }
+      total += Math.max(0, list.length - 1) * 12;
+      if (total <= area || fs <= 11) break;
+    }
+    let y = top + Math.max(0, area - total) * .45;
+    for (const b of list) {
+      const w = b.face.offsetWidth, h = b.face.offsetHeight;
+      const c = p.chars.find(x => x.key === b.key) || p.chars[0];
+      const pad = b.kind === 'shout' ? 12 : 5;
+      if (b.kind === 'shout') y += 9;
+      const lo = Math.max(p.L(y), p.L(y + h)) + pad, hi = Math.min(p.R(y), p.R(y + h)) - pad;
+      let x;
+      if (b.kind === 'narr') x = lo;
+      else if (n === 2) x = c.side === 'L' ? lo : hi - w;
+      else x = clamp(c.x - w / 2, lo, hi - w);
+      x = Math.max(lo - pad + 2, Math.min(x, hi - w));
+      b.el.style.left = x + 'px';
+      b.el.style.top = y + 'px';
+      if (b.svg) {
+        const tx = c.x + (x + w / 2 < c.x ? -7 : 7) - x;
+        drawShape(b, w, h, { x: tx, y: c.headTop - 5 - y });
+      }
+      y += h + 12 + (b.kind === 'shout' ? 9 : 0);
+    }
+    return fs;
+  }
+  const relayout = (p) => { if (!p.dead && p.el.isConnected) layoutPanel(p); };
+
+  // Bubble outline and tail drawn as ONE path, plus a halftone shadow copy.
+  let shapeUid = 0;
+  function drawShape(b, W, H, tip) {
+    const id = 'bs' + (++shapeUid);
+    let d, extra = '';
+    const tailOK = tip.y > H + 6;
+    if (b.kind === 'shout') d = shoutPath(W, H, tailOK && tip);
+    else if (b.kind === 'thought') { d = cloudPath(W, H); if (tailOK) extra = thoughtTrail(W, H, tip); }
+    else d = speechPath(W, H, tailOK && tip);
+    const fill = b.kind === 'shout' ? '#fff27a' : '#fff';
+    const dots = b.kind === 'shout' ? 'rgba(255,170,0,.35)' : 'var(--dot)';
+    b.svg.setAttribute('width', W);
+    b.svg.setAttribute('height', H);
+    b.svg.innerHTML = `<defs>
+        <pattern id="${id}s" width="6" height="6" patternUnits="userSpaceOnUse">
+          <rect width="6" height="6" style="fill:var(--c)"/><circle cx="3" cy="3" r="1.5" style="fill:var(--c2)"/>
+        </pattern>
+        <pattern id="${id}f" width="7" height="7" patternUnits="userSpaceOnUse">
+          <rect width="7" height="7" style="fill:${fill}"/><circle cx="3.5" cy="3.5" r="1.2" style="fill:${dots}"/>
+        </pattern>
+      </defs>
+      <g transform="translate(6 6)" fill="url(#${id}s)" stroke="#111" stroke-width="3" stroke-linejoin="round"><path d="${d}"/>${extra}</g>
+      <g fill="url(#${id}f)" stroke="#111" stroke-width="3.5" stroke-linejoin="round"><path d="${d}"/>${extra}</g>`;
+  }
+  function speechPath(W, H, tip) {
+    const r = Math.min(16, H / 2);
+    if (!tip) return `M${r} 0 H${W - r} A${r} ${r} 0 0 1 ${W} ${r} V${H - r} A${r} ${r} 0 0 1 ${W - r} ${H} H${r} A${r} ${r} 0 0 1 0 ${H - r} V${r} A${r} ${r} 0 0 1 ${r} 0Z`;
+    const bx = clamp(tip.x * .6 + W / 2 * .4, r + 12, W - r - 12), xl = bx - 11, xr = bx + 11;
+    return `M${r} 0 H${W - r} A${r} ${r} 0 0 1 ${W} ${r} V${H - r} A${r} ${r} 0 0 1 ${W - r} ${H}`
+      + ` H${xr} Q${xr + (tip.x - xr) * .25} ${H + (tip.y - H) * .6} ${tip.x} ${tip.y} Q${xl + (tip.x - xl) * .5} ${H + (tip.y - H) * .35} ${xl} ${H}`
+      + ` H${r} A${r} ${r} 0 0 1 0 ${H - r} V${r} A${r} ${r} 0 0 1 ${r} 0Z`;
+  }
+  function shoutPath(W, H, tip) {
+    const pts = [], sp = 9, step = 17;
+    const bx = tip ? clamp(tip.x * .6 + W / 2 * .4, 20, W - 20) : 0, xl = bx - 12, xr = bx + 12;
+    const edge = (x0, y0, x1, y1, nx, ny, bottom) => {
+      const k = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / step));
+      let tailed = false;
+      for (let i = 0; i < k; i++) {
+        const x = x0 + (x1 - x0) * i / k, y = y0 + (y1 - y0) * i / k;
+        if (bottom && tip && x <= xr && x >= xl) {
+          if (!tailed) {
+            tailed = true;
+            pts.push([xr, H], [(xr + tip.x) / 2 + 6, (H + tip.y) / 2], [tip.x, tip.y], [(xl + tip.x) / 2 - 3, (H + tip.y) / 2 + 5], [xl, H]);
+          }
+          continue;
+        }
+        const o = i % 2 === 0 ? sp : 0;
+        pts.push([x + nx * o, y + ny * o]);
+      }
+      if (bottom && tip && !tailed) pts.push([xr, H], [tip.x, tip.y], [xl, H]);
+    };
+    edge(0, 0, W, 0, 0, -1);
+    edge(W, 0, W, H, 1, 0);
+    edge(W, H, 0, H, 0, 1, true);
+    edge(0, H, 0, 0, -1, 0);
+    return 'M' + pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' L') + 'Z';
+  }
+  function cloudPath(W, H) {
+    const pts = [], step = 22;
+    const edge = (x0, y0, x1, y1) => {
+      const k = Math.max(1, Math.round(Math.hypot(x1 - x0, y1 - y0) / step));
+      for (let i = 0; i < k; i++) pts.push([x0 + (x1 - x0) * i / k, y0 + (y1 - y0) * i / k]);
+    };
+    const i = 5;
+    edge(i, i, W - i, i); edge(W - i, i, W - i, H - i); edge(W - i, H - i, i, H - i); edge(i, H - i, i, i);
+    pts.push(pts[0]);
+    return scallop(pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)), 13) + 'Z';
+  }
+  function thoughtTrail(W, H, tip) {
+    const sx = clamp(tip.x, 24, W - 24), sy = H + 4;
+    return [[.3, 6.5], [.62, 4.6], [.88, 3]].map(([t, r]) =>
+      `<circle cx="${(sx + (tip.x - sx) * t).toFixed(1)}" cy="${(sy + (tip.y - sy) * t).toFixed(1)}" r="${r}"/>`).join('');
+  }
+
+  // ---------------- the story: deciding where each message goes ----------------
+  const MINFS = () => Math.max(11, Math.round(CFG.fs * .72));
+  function place(it) {
+    if (it.event) return placeEvent(it);
+    const now = Date.now();
+    if (!chatters.has(it.who)) return;
+    const target = it.target && it.target !== it.who && chatters.has(it.target) ? it.target : null;
+    const cur = panels.filter(x => !x.dead).pop();
+
+    // join the current panel when it fits
+    if (cur && !cur.sealed && cur.bubbles.length < 2 && now - cur.last < 14000) {
+      const keys = new Set(cur.chars.map(c => c.key)); keys.add(it.who); if (target) keys.add(target);
+      if (keys.size <= 2) {
+        const added = [];
+        for (const k of [it.who, target]) if (k && !cur.chars.some(c => c.key === k)) added.push(addChar(cur, k));
+        // a narrow one-person panel stretches when someone joins
+        if (added.length && cur.chars.length === 2 && cur.w < CFG.pw) { cur.w = Math.round(CFG.pw * (1.02 + Math.random() * .18)); setGeom(cur); }
+        const b = addBubble(cur, it);
+        setMood(cur, it);
+        if (layoutPanel(cur) >= MINFS()) return landed(cur, it);
+        // too crowded: take it back out and start a new panel instead
+        removeBubble(cur, b);
+        added.forEach(c => removeChar(cur, c));
+        cur.sealed = true;
+        cur.chars.forEach(c => { c.sig = null; });
+        layoutPanel(cur);
+      }
+    }
+
+    let partner = target;
+    if (!partner && CFG.listeners && lastSpeaker && lastSpeaker.key !== it.who && now - lastSpeaker.at < 15000 && chatters.has(lastSpeaker.key)) partner = lastSpeaker.key;
+    const p = newPanel(partner ? [it.who, partner] : [it.who], {
+      caption: captionFor(now, it),
+      bg: it.kind === 'narr' ? null : MOOD_BG[moodOf(it.tokens, it.kind)],
+    });
+    addBubble(p, it);
+    setMood(p, it);
+    layoutPanel(p);
+    landed(p, it);
+  }
+  function captionFor(now, it) {
+    if (!CFG.captions) return '';
+    let cap = '';
+    if (!storyStarted) cap = 'Our story begins…';
+    else if (freshStrip) cap = rnd(['Meanwhile, in chat…', 'Later that day…', 'Elsewhere in chat…', 'Back in chat…']);
+    else if (now - lastPanelAt > 25000) cap = rnd(['Later…', 'A few moments later…', 'Meanwhile…']);
+    else if (it.kind === 'shout' && Math.random() < .35) cap = 'Suddenly…';
+    storyStarted = true; freshStrip = false;
+    return cap;
+  }
+  function setMood(p, it) {
+    const c = p.chars.find(x => x.key === it.who);
+    if (c) c.expr = it.kind === 'narr' ? 'laugh' : moodOf(it.tokens, it.kind);
+    for (const o of p.chars) if (o !== c && !p.bubbles.some(b => b.key === o.key)) o.expr = 'talk';
+  }
+  function landed(p, it) {
+    const now = Date.now();
+    p.last = now; lastPanelAt = now;
+    if (!it.event) lastSpeaker = { key: it.who, at: now };
+    const c = p.chars.find(x => x.key === it.who);
+    if (c && it.kind !== 'thought' && it.kind !== 'narr') {
+      c.el.classList.add('talking');
+      clearTimeout(c.talkT);
+      c.talkT = setTimeout(() => c.el.classList.remove('talking'), 900 + (p.bubbles[p.bubbles.length - 1]?.words || 3) * 120);
+    }
+    armIdle();
+  }
+  function placeEvent(it) {
+    if (!chatters.has(it.who)) return;
+    const keys = [it.who];
+    if (it.recipient && it.recipient !== it.who && chatters.has(it.recipient)) keys.push(it.recipient);
+    const p = newPanel(keys, { caption: it.caption, splash: it.splash, bg: 'flash', sealed: true });
+    p.chars.forEach(c => { c.expr = 'laugh'; c.el.classList.add('hype'); });
+    if (it.tokens && it.tokens.some(t => t.t !== 'text' || t.v.trim())) addBubble(p, { ...it, kind: '' });
+    layoutPanel(p);
+    landed(p, it);
+  }
+
+  // ---------------- pacing ----------------
+  // Messages land one at a time so each has a moment on screen. In a busy chat the oldest waiting
+  // messages are dropped rather than falling further and further behind.
+  const queue = [];
+  let readyAt = 0, pumpT = 0;
+  function enqueue(it, urgent = false) {
+    it.at = Date.now();
+    if (urgent) queue.unshift(it); else queue.push(it);
+    while (queue.length > 10) {
+      const i = queue.findIndex(q => !q.event);
+      queue.splice(i < 0 ? 0 : i, 1);
+    }
+    pump();
+  }
+  function pump() {
+    clearTimeout(pumpT);
+    if (!queue.length) return;
+    const now = Date.now();
+    if (now < readyAt) { pumpT = setTimeout(pump, readyAt - now); return; }
+    const it = queue.shift();
+    if (now - it.at > 30000) return pump();
+    place(it);
+    const len = (it.tokens || []).reduce((n, t) => n + (t.t === 'text' ? t.v.length : 4), 0);
+    let gap = clamp(800 + len * 32, 1400, 4500) / CFG.speed;
+    if (it.event) gap = Math.max(gap, 3500 / CFG.speed);
+    if (queue.length > 3) gap *= .6;
+    readyAt = Date.now() + gap;
+    pumpT = setTimeout(pump, gap);
+  }
+
+  let idleT = 0;
+  function armIdle() {
+    clearTimeout(idleT);
+    if (CFG.idle > 0) idleT = setTimeout(clearStrip, CFG.idle);
+  }
+  function clearStrip() {
+    panels.filter(p => !p.dead).forEach((p, i) => setTimeout(() => retire(p, 'drop'), i * 140));
+    freshStrip = true;
+    lastSpeaker = null;
+  }
+
+  // a deleted message or banned chatter gets blacked out
+  function redact(test) {
+    for (const p of panels) for (const b of p.bubbles) if (test(b) && !b.el.classList.contains('redacted')) b.el.classList.add('redacted');
+    for (let i = queue.length - 1; i >= 0; i--) if (test(queue[i])) queue.splice(i, 1);
+  }
+
+  // ---------------- entry point for all chat sources ----------------
+  function handleChat({ name, login, text, tokens, color, platform = 'custom', action = false, badges = [], msgId, replyTo }) {
+    if (!name || hidden || Date.now() < quietUntil) return;
+    if (CFG.ignore.has(name.toLowerCase()) || (login && CFG.ignore.has(login.toLowerCase()))) return;
+    const plain = (text || '').trim();
+    if (!CFG.cmds && plain.startsWith('!')) return;
+    tokens = expandExtEmotes(tokens || [{ t: 'text', v: plain }]);
+    const who = upsertChatter({ name, login, platform, color, badges });
+
+    // who are they talking to? (Twitch replies, or an @mention of someone who's chatted)
+    let target = null;
+    if (replyTo && replyTo.name) {
+      const rl = (replyTo.login || replyTo.name).toLowerCase();
+      target = chatters.has(platform + ':' + rl) ? platform + ':' + rl
+        : byName.get(rl) || upsertChatter({ name: replyTo.name, login: replyTo.login, platform });
+      tokens = stripMention(tokens, replyTo.name);
+    } else {
+      const m = /^\s*@([\w.-]+)/.exec(plain);
+      const k = m && (byName.get(m[1].toLowerCase()) || null);
+      if (k && k !== who) { target = k; tokens = stripMention(tokens, m[1]); }
+    }
+    if (!tokens.some(t => t.t !== 'text' || t.v.trim())) return;
+
+    const textOnly = tokens.filter(t => t.t === 'text').map(t => t.v).join(' ').trim();
+    const letters = textOnly.replace(/[^A-Za-z]/g, '');
+    let kind = '';
+    if (action) kind = 'narr';
+    else if (letters.length >= 4 && letters === letters.toUpperCase()) kind = 'shout';
+    else if (/(\.\.\.|…)$/.test(textOnly) && textOnly.length > 4 || /^hm+\b/i.test(textOnly)) kind = 'thought';
+    enqueue({ who, target, tokens, kind, msgId, login: (login || name).toLowerCase(), platform });
+  }
+
+  window.chatComics = {
+    say: (name, text, opts = {}) => handleChat({
+      name, text, color: opts.color, platform: opts.platform || 'custom',
+      replyTo: opts.replyTo ? { name: opts.replyTo, login: String(opts.replyTo).toLowerCase() } : null,
+    }),
+    clear: clearStrip,
+  };
+
+  // ---------------- hidden / shown ----------------
+  // While the overlay is hidden (background tab, OBS source not visible) the browser throttles
+  // timers, so everything waiting would fire at once when it comes back. Instead, chat is ignored
+  // while hidden and the strip starts fresh when it's shown again.
+  let hidden = document.hidden, quietUntil = 0, shownAt = Date.now();
+  function resetStage() {
+    queue.length = 0;
+    panels.forEach(p => p.slot.remove());
+    panels.length = 0;
+    strip.classList.add('empty');
+    freshStrip = true; lastSpeaker = null;
+  }
+  function setHidden(h) {
+    if (h === hidden) return;
+    hidden = h;
+    resetStage();
+    // throttled timers (demo, YouTube batches) flush right after the page wakes up; skip those
+    if (!h) { shownAt = Date.now(); quietUntil = shownAt + 1000; }
+  }
+  document.addEventListener('visibilitychange', () => setHidden(document.hidden));
+  addEventListener('obsSourceVisibleChanged', e => setHidden(!(e.detail && e.detail.visible)));
+
+  // ---------------- Twitch (anonymous IRC over WebSocket) ----------------
+  function parseTags(raw) {
+    const o = {};
+    const un = v => v.replace(/\\(.)/g, (_, c) => ({ s: ' ', ':': ';', '\\': '\\', r: '\r', n: '\n' }[c] ?? c));
+    raw.split(';').forEach(kv => { const i = kv.indexOf('='); o[kv.slice(0, i)] = un(kv.slice(i + 1)); });
+    return o;
+  }
+  // Native Twitch emotes (animated ones play automatically), chat GIFs (gifs tag) and
+  // gigantified emotes (the Power-up makes the last emote in the message huge).
+  function twitchTokens(msg, tags) {
+    const chars = Array.from(msg);
+    const ranges = [];
+    (tags.emotes || '').split('/').forEach(e => {
+      const [id, pos] = e.split(':');
+      if (!pos) return;
+      pos.split(',').forEach(p => { const [a, b] = p.split('-').map(Number); ranges.push({ kind: 'emote', id, a, b }); });
+    });
+    const gre = /(\d+)-(\d+)\|([^|]+)\|(.+?)(?=,\d+-\d+\||$)/g;
+    let g;
+    while ((g = gre.exec(tags.gifs || ''))) ranges.push({ kind: 'gif', a: +g[1], b: +g[2], id: g[3], url: g[4] });
+    ranges.sort((x, y) => x.a - y.a);
+    const giant = tags['msg-id'] === 'gigantified-emote-message';
+    const lastEmote = giant ? [...ranges].reverse().find(r => r.kind === 'emote') : null;
+    const out = []; let i = 0;
+    for (const r of ranges) {
+      if (r.a < i) continue;
+      if (r.a > i) out.push({ t: 'text', v: chars.slice(i, r.a).join('') });
+      const code = chars.slice(r.a, r.b + 1).join('');
+      if (r.kind === 'gif') out.push({ t: 'gif', url: r.url, code: 'GIF' });
+      else out.push({ t: 'emote', code, giant: r === lastEmote,
+        url: `https://static-cdn.jtvnw.net/emoticons/v2/${r.id}/default/dark/${r === lastEmote ? '3.0' : '2.0'}` });
+      i = r.b + 1;
+    }
+    if (i < chars.length) out.push({ t: 'text', v: chars.slice(i).join('') });
+    return out;
+  }
+
+  // ---------------- badges ----------------
+  // Twitch badge art comes from the public IVR API (global + channel, incl. sub-month badges).
+  // If that's unreachable, the common global badges use Twitch's CDN directly, and anything
+  // else falls back to a built-in comic badge. YouTube/TikTok send roles, not images, so they
+  // use the built-in badges.
+  const twBadges = { global: {}, channel: {} };
+  const TW_BADGE_UUID = {
+    broadcaster: '5527c58c-fb7d-422d-b71b-f309dcb85cc1', moderator: '3267646d-33f0-4b17-b3df-f923a41db1d0',
+    vip: 'b817aba4-fad8-49e2-b88a-7cc744dfa6ec', subscriber: '5d9f2208-5dd8-11e7-8513-2ff4adfae661',
+    founder: '511b78a9-ab37-472f-9569-457753bbe7d3', partner: 'd12a2e27-16f6-41d0-ab77-b780518f00a3',
+    staff: 'd97c37bd-a6f5-4c38-8f57-4e4bef88af34', premium: 'bbbe0db0-a598-423e-86d0-f9fb98ca1933',
+    turbo: 'bd444ec6-8f34-4bf9-91f4-af1e3428d80f', 'artist-badge': '4300a897-03dc-4e83-8c0e-c332fee7057f',
+  };
+  const TW_ROLE = { broadcaster: 'owner', moderator: 'mod', lead_moderator: 'mod', vip: 'vip', subscriber: 'sub',
+    founder: 'founder', partner: 'verified', staff: 'staff', admin: 'staff', 'artist-badge': 'artist' };
+  const ICONS = {
+    owner:    { c: '#e91916', g: '<path d="M3 5.5h6.5v5H3z M9.5 7.6l3.3-2v4.8l-3.3-2z" fill="#fff"/>' },
+    mod:      { c: '#00ad03', g: '<path d="M12.5 3.5l-6.3 6.3M4.5 8.6l2.9 2.9M5.3 10.7l-2 2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>' },
+    vip:      { c: '#e005b9', g: '<path d="M8 3 12.8 7 8 13 3.2 7z" fill="#fff"/>' },
+    sub:      { c: '#9146ff', g: '<path d="M8 2.6l1.7 3.4 3.7.5-2.7 2.6.7 3.7L8 11l-3.4 1.8.7-3.7L2.6 6.5l3.7-.5z" fill="#fff"/>' },
+    founder:  { c: '#e8a90c', g: '<path d="M8 2.6l1.7 3.4 3.7.5-2.7 2.6.7 3.7L8 11l-3.4 1.8.7-3.7L2.6 6.5l3.7-.5z" fill="#fff"/>' },
+    member:   { c: '#2ba640', g: '<path d="M8 2.6l1.7 3.4 3.7.5-2.7 2.6.7 3.7L8 11l-3.4 1.8.7-3.7L2.6 6.5l3.7-.5z" fill="#fff"/>' },
+    verified: { c: '#5b8cff', g: '<path d="M4.2 8.3l2.6 2.6 5-5.4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' },
+    staff:    { c: '#222', g: '<path d="M10.6 3a2.6 2.6 0 0 0-2.4 3.5L3.4 11.3l1.3 1.3 4.8-4.8A2.6 2.6 0 0 0 13 5.4l-1.6 1-1.3-1.3 1-1.6z" fill="#fff"/>' },
+    artist:   { c: '#1f69ff', g: '<path d="M4 12l1-3 6-6 2 2-6 6z" fill="#fff"/>' },
+    follower: { c: '#fe2c55', g: '<path d="M8 13s-5-3.1-5-6.5C3 4.6 4.3 3.5 5.7 3.5c1 0 1.8.6 2.3 1.4.5-.8 1.3-1.4 2.3-1.4 1.4 0 2.7 1.1 2.7 3C13 9.9 8 13 8 13z" fill="#fff"/>' },
+    friend:   { c: '#25c4d8', g: '<path d="M6 12s-3.6-2.3-3.6-4.8C2.4 5.8 3.3 5 4.3 5c.7 0 1.3.4 1.7 1 .4-.6 1-1 1.7-1 1 0 1.9.8 1.9 2.2C9.6 9.7 6 12 6 12zM10.5 10.5s2.6-1.7 2.6-3.5c0-1-.7-1.6-1.4-1.6" fill="#fff" stroke="#fff" stroke-width=".6"/>' },
+    gifter:   { c: '#ffb800', g: '<path d="M5 3h6v2.6a3 3 0 0 1-6 0z M8 8.6v2.2 M5.5 12.8h5" fill="#fff" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>' },
+  };
+  function iconSVG(role, label) {
+    const ic = ICONS[role]; if (!ic) return null;
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.innerHTML = `<rect x=".9" y=".9" width="14.2" height="14.2" rx="3.5" fill="${ic.c}" stroke="#111" stroke-width="1.8"/>${ic.g}`
+      + (label ? `<text x="12.6" y="15" font-size="6.5" font-weight="900" fill="#111" stroke="#fff" stroke-width="1.6" paint-order="stroke" text-anchor="middle" font-family="sans-serif">${label}</text>` : '');
+    return svg;
+  }
+  function badgeEl(b) {
+    if (b.url) {
+      const img = document.createElement('img');
+      img.src = b.url; img.alt = '';
+      img.onerror = () => { const f = iconSVG(b.role); if (f) img.replaceWith(f); else img.remove(); };
+      return img;
+    }
+    return iconSVG(b.role, b.label);
+  }
+  function fillBadges(dst, list) {
+    const arr = Array.isArray(list) ? list : (list && (list.data || list.badges)) || [];
+    arr.forEach(set => {
+      const m = dst[set.set_id] = dst[set.set_id] || {};
+      (set.versions || []).forEach(v => { m[v.id] = v.image_url_2x || v.image_url_1x || v.image_url_4x; });
+    });
+  }
+  async function loadTwitchBadges(login) {
+    await Promise.allSettled([
+      getJSON('https://api.ivr.fi/v2/twitch/badges/global').then(j => fillBadges(twBadges.global, j)),
+      login ? getJSON(`https://api.ivr.fi/v2/twitch/badges/channel?login=${encodeURIComponent(login)}`).then(j => fillBadges(twBadges.channel, j)) : null,
+    ]);
+  }
+  // roles are always read (the streamer's crown needs them); images only show when badges are on
+  function twitchBadges(tag) {
+    if (!tag) return [];
+    return tag.split(',').filter(Boolean).map(b => {
+      const [set, ver] = b.split('/');
+      const g = twBadges.global[set] || {}, c = twBadges.channel[set] || {};
+      const url = c[ver] || g[ver] || (TW_BADGE_UUID[set] ? `https://static-cdn.jtvnw.net/badges/v1/${TW_BADGE_UUID[set]}/2` : null);
+      return { url, role: TW_ROLE[set] };
+    }).filter(b => b.url || b.role);
+  }
+  function roleBadges(d) {
+    if (!d) return [];
+    const out = [];
+    if (d.isChatOwner || d.isOwner || d.isStreamer || d.isBroadcaster) out.push({ role: 'owner' });
+    if (d.isChatModerator || d.isModerator || d.isMod) out.push({ role: 'mod' });
+    if (d.isChatSponsor || d.isMember) out.push({ role: 'member' });
+    if (d.isSubscriber) out.push({ role: 'sub' });
+    if (d.isVerified) out.push({ role: 'verified' });
+    if (d.followRole === 2) out.push({ role: 'friend' }); else if (d.followRole === 1) out.push({ role: 'follower' });
+    if (d.topGifterRank >= 1 && d.topGifterRank <= 3) out.push({ role: 'gifter', label: String(d.topGifterRank) });
+    const imgs = (Array.isArray(d.userBadges) ? d.userBadges : Array.isArray(d.badges) ? d.badges : [])
+      .map(b => typeof b === 'string' ? b : b && (b.url || b.imageUrl || b.image)).filter(u => typeof u === 'string' && /^https?:/.test(u));
+    imgs.slice(0, 2).forEach(url => out.push({ url }));
+    return out;
+  }
+
+  // ---------------- BTTV / FFZ / 7TV emotes ----------------
+  const extEmotes = new Map(); // code -> { url, zw }
+  const BTTV_ZW = new Set(['SoSnowy', 'IceCold', 'SantaHat', 'TopHat', 'ReinDeer', 'CandyCane', 'cvMask', 'cvHazmat']);
+  let twitchRoomId = '', kickUserId = '';
+  async function getJSON(u) { const r = await fetch(u); if (!r.ok) throw new Error(r.status + ' ' + u); return r.json(); }
+  async function loadExtEmotes() {
+    const next = new Map();
+    const add = (code, url, zw = false) => { if (code && url) next.set(code, { url, zw }); };
+    const bttv = (l) => (l || []).forEach(e => add(e.code, `https://cdn.betterttv.net/emote/${e.id}/2x`, BTTV_ZW.has(e.code)));
+    const ffz = (l) => (l || []).forEach(e => e.images && add(e.code, e.images['2x'] || e.images['1x']));
+    const stv = (l) => (l || []).forEach(e => {
+      const host = e.data && e.data.host;
+      if (!host || !host.url) return;
+      const files = host.files || [];
+      const f = files.find(x => x.name === '2x.webp') || files.find(x => /2x/.test(x.name)) || files[0];
+      const zw = ((e.flags || 0) & 1) || ((e.data.flags || 0) & 256);
+      add(e.name, (host.url.startsWith('//') ? 'https:' : '') + host.url + '/' + (f ? f.name : '2x.webp'), !!zw);
+    });
+    // globals first so channel emotes with the same name win
+    await Promise.allSettled([
+      getJSON('https://api.betterttv.net/3/cached/emotes/global').then(bttv),
+      getJSON('https://api.betterttv.net/3/cached/frankerfacez/emotes/global').then(ffz),
+      getJSON('https://7tv.io/v3/emote-sets/global').then(set => stv(set.emotes)),
+    ]);
+    if (twitchRoomId) await Promise.allSettled([
+      getJSON(`https://api.betterttv.net/3/cached/users/twitch/${twitchRoomId}`).then(u => bttv([...(u.channelEmotes || []), ...(u.sharedEmotes || [])])),
+      getJSON(`https://api.betterttv.net/3/cached/frankerfacez/users/twitch/${twitchRoomId}`).then(ffz),
+      getJSON(`https://7tv.io/v3/users/twitch/${twitchRoomId}`).then(u => stv(u.emote_set && u.emote_set.emotes)),
+    ]);
+    if (kickUserId) await getJSON(`https://7tv.io/v3/users/kick/${kickUserId}`).then(u => stv(u.emote_set && u.emote_set.emotes)).catch(() => {});
+    if (next.size) { extEmotes.clear(); next.forEach((v, k) => extEmotes.set(k, v)); }
+    console.log('[chatComics] loaded', extEmotes.size, 'BTTV/FFZ/7TV emotes');
+  }
+  function expandExtEmotes(tokens) {
+    if (!extEmotes.size) return tokens;
+    const out = [];
+    for (const t of tokens) {
+      if (t.t !== 'text') { out.push(t); continue; }
+      let buf = '';
+      for (const part of t.v.split(/(\s+)/)) {
+        const e = part && extEmotes.get(part);
+        if (e) { if (buf) out.push({ t: 'text', v: buf }); buf = ''; out.push({ t: 'emote', code: part, url: e.url, zw: e.zw }); }
+        else buf += part;
+      }
+      if (buf) out.push({ t: 'text', v: buf });
+    }
+    return out;
+  }
+
+  // ---------------- pronouns (pronouns.alejo.io, Twitch only) ----------------
+  const pronounDefs = {};
+  const pronounCache = new Map();
+  let pronounDefsP = null;
+  function pronounsFor(login) {
+    if (pronounCache.has(login)) return pronounCache.get(login);
+    pronounDefsP = pronounDefsP || getJSON('https://api.pronouns.alejo.io/v1/pronouns').then(j => Object.assign(pronounDefs, j)).catch(() => {});
+    const pr = (async () => {
+      try {
+        const r = await fetch(`https://api.pronouns.alejo.io/v1/users/${encodeURIComponent(login)}`);
+        if (!r.ok) return '';
+        const u = await r.json();
+        await pronounDefsP;
+        const a = pronounDefs[u.pronoun_id], b = u.alt_pronoun_id && pronounDefs[u.alt_pronoun_id];
+        if (!a) return '';
+        return (b ? `${a.subject}/${b.subject}` : a.singular ? a.subject : `${a.subject}/${a.object}`).toLowerCase();
+      } catch { return ''; }
+    })();
+    pronounCache.set(login, pr);
+    if (pronounCache.size > 2000) pronounCache.delete(pronounCache.keys().next().value);
+    return pr;
+  }
+
+  // Twitch events that come through anonymous chat: subs, resubs, gifts, raids, bits
+  const giftBombs = new Map(); // gifter login -> individual gift notices still to skip
+  function twitchEvent(tags, msg) {
+    if (!CFG.events || hidden || Date.now() < quietUntil) return;
+    const id = tags['msg-id'];
+    const name = tags['display-name'] || tags.login, login = tags.login || name;
+    if (!name || CFG.ignore.has(login.toLowerCase())) return;
+    const who = upsertChatter({ name, login, platform: 'twitch', color: tags.color, badges: twitchBadges(tags.badges) });
+    const ev = { event: true, who, tokens: msg ? expandExtEmotes(twitchTokens(msg, tags)) : null };
+    if (id === 'sub') Object.assign(ev, { splash: 'NEW SUB!', caption: `${name} just subscribed!` });
+    else if (id === 'resub') {
+      const m = +tags['msg-param-cumulative-months'] || 0;
+      Object.assign(ev, { splash: m > 1 ? `${m} MONTHS!` : 'RESUB!', caption: `${name} resubscribed!` });
+    } else if (id === 'subgift') {
+      const left = giftBombs.get(login) || 0;
+      if (left > 0) { giftBombs.set(login, left - 1); return; }
+      const rn = tags['msg-param-recipient-display-name'] || tags['msg-param-recipient-user-name'];
+      if (rn) ev.recipient = upsertChatter({ name: rn, login: tags['msg-param-recipient-user-name'], platform: 'twitch' });
+      Object.assign(ev, { splash: 'GIFT SUB!', caption: rn ? `${name} gifted a sub to ${rn}!` : `${name} gifted a sub!` });
+    } else if (id === 'submysterygift') {
+      const n = +tags['msg-param-mass-gift-count'] || 1;
+      giftBombs.set(login, (giftBombs.get(login) || 0) + n);
+      setTimeout(() => giftBombs.delete(login), 30000);
+      Object.assign(ev, { splash: `${n} GIFTS!`, caption: `${name} is gifting ${n} sub${n === 1 ? '' : 's'} to chat!` });
+    } else if (id === 'raid') {
+      const n = +tags['msg-param-viewerCount'] || 0;
+      Object.assign(ev, { splash: 'RAID!', caption: `${name} is raiding with ${n} viewer${n === 1 ? '' : 's'}!`, tokens: null });
+    } else return;
+    enqueue(ev, true);
+  }
+
+  function connectTwitch(channel) {
+    const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+    ws.onopen = () => {
+      ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+      ws.send('PASS SCHMOOPIIE');
+      ws.send('NICK justinfan' + Math.floor(10000 + Math.random() * 80000));
+      ws.send('JOIN #' + channel);
+    };
+    ws.onmessage = (ev) => {
+      ev.data.split('\r\n').forEach(line => {
+        if (!line) return;
+        if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); return; }
+        const m = /^(?:@(\S+) )?:([^!\s]+)![^ ]+ PRIVMSG #\S+ :(.*)$/.exec(line);
+        if (m) {
+          const tags = m[1] ? parseTags(m[1]) : {};
+          if (tags['first-msg'] === '1' && !CFG.firsttime) return;
+          let msg = m[3], action = false;
+          const act = /^\u0001ACTION (.*)\u0001$/.exec(msg);
+          if (act) { msg = act[1]; action = true; }
+          const name = tags['display-name'] || m[2];
+          if (tags.bits && CFG.events && !CFG.ignore.has(m[2])) {
+            const who = upsertChatter({ name, login: m[2], platform: 'twitch', color: tags.color, badges: twitchBadges(tags.badges) });
+            const clean = msg.replace(/(^|\s)[A-Za-z]+\d+(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
+            if (!hidden && Date.now() >= quietUntil) enqueue({ event: true, who, splash: `${tags.bits} BITS!`, caption: `${name} cheered!`,
+              tokens: clean ? expandExtEmotes([{ t: 'text', v: clean }]) : null }, true);
+            return;
+          }
+          handleChat({
+            name,
+            text: msg,
+            login: m[2],
+            badges: twitchBadges(tags.badges),
+            tokens: twitchTokens(msg, tags),
+            color: tags.color,
+            platform: 'twitch',
+            action,
+            msgId: tags.id,
+            replyTo: tags['reply-parent-user-login'] ? { login: tags['reply-parent-user-login'], name: tags['reply-parent-display-name'] || tags['reply-parent-user-login'] } : null,
+          });
+          return;
+        }
+        const un = /^@(\S+) :tmi\.twitch\.tv USERNOTICE #\S+(?: :(.*))?$/.exec(line);
+        if (un) { twitchEvent(parseTags(un[1]), un[2] || ''); return; }
+        const rs = /^@(\S+) :tmi\.twitch\.tv ROOMSTATE /.exec(line);
+        if (rs) {
+          const id = parseTags(rs[1])['room-id'];
+          if (id && id !== twitchRoomId) { twitchRoomId = id; if (CFG.extemotes) loadExtEmotes(); }
+          return;
+        }
+        const cm = /^@(\S+) :tmi\.twitch\.tv CLEARMSG /.exec(line);
+        if (cm) { const id = parseTags(cm[1])['target-msg-id']; if (id) redact(b => b.msgId === id); return; }
+        const cc = /CLEARCHAT #\S+(?: :(\S+))?$/.exec(line);
+        if (cc) {
+          if (cc[1]) { const k = 'twitch:' + cc[1].toLowerCase(); redact(b => (b.key || b.who) === k); }
+          else clearStrip();
+        }
+      });
+    };
+    ws.onclose = () => setTimeout(() => connectTwitch(channel), 3000);
+  }
+
+  // ---------------- WebSocket bridges (TikFinity for TikTok, or any bridge for YouTube) ----------------
+  function connectBridge(url, platform) {
+    let ws;
+    try { ws = new WebSocket(url); } catch (e) { return setTimeout(() => connectBridge(url, platform), 5000); }
+    ws.onmessage = (ev) => {
+      let o; try { o = JSON.parse(ev.data); } catch { return; }
+      const type = (o.event || o.type || '').toString().toLowerCase();
+      if (type && !['chat', 'comment', 'message', 'chatmessage'].includes(type)) return;
+      const d = o.data || o;
+      const name = d.nickname || d.uniqueId || d.displayName || d.chatname ||
+                   (d.user && (d.user.nickname || d.user.uniqueId || d.user.name)) || d.username;
+      const text = d.comment || d.message || d.text || d.chatmessage;
+      if (name && typeof text === 'string') handleChat({ name, login: d.uniqueId, text, color: d.color, platform, tokens: bridgeTokens(text, d.emotes), badges: roleBadges(d) });
+    };
+    ws.onclose = () => setTimeout(() => connectBridge(url, platform), 3000);
+    ws.onerror = () => {};
+  }
+
+  // TikTok subscriber emotes arrive as [{ emoteImageUrl, placeInComment }]; other bridges may send
+  // [{ name|code, url|imageUrl }] to swap by name.
+  function bridgeTokens(text, emotes) {
+    if (!Array.isArray(emotes) || !emotes.length) return null;
+    const placed = emotes.filter(e => e && (e.emoteImageUrl || e.url || e.imageUrl) && Number.isInteger(e.placeInComment))
+                         .sort((a, b) => a.placeInComment - b.placeInComment);
+    if (placed.length) {
+      const chars = Array.from(text), out = []; let i = 0;
+      for (const e of placed) {
+        const at = Math.min(e.placeInComment, chars.length);
+        if (at > i) out.push({ t: 'text', v: chars.slice(i, at).join('') });
+        out.push({ t: 'emote', url: e.emoteImageUrl || e.url || e.imageUrl });
+        i = at;
+      }
+      if (i < chars.length) out.push({ t: 'text', v: chars.slice(i).join('') });
+      return out;
+    }
+    const named = new Map(emotes.filter(e => e && (e.name || e.code) && (e.url || e.imageUrl)).map(e => [e.name || e.code, e.url || e.imageUrl]));
+    if (!named.size) return null;
+    return text.split(/(\s+)/).filter(Boolean).map(w => named.has(w) ? { t: 'emote', code: w, url: named.get(w) } : { t: 'text', v: w });
+  }
+
+  // ---------------- YouTube (Data API v3 polling) ----------------
+  async function connectYouTube(videoId, key) {
+    const API = 'https://www.googleapis.com/youtube/v3/';
+    const retry = () => setTimeout(() => connectYouTube(videoId, key), 30000);
+    let chatId;
+    try {
+      const r = await fetch(`${API}videos?part=liveStreamingDetails&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(key)}`);
+      const j = await r.json();
+      chatId = j.items && j.items[0] && j.items[0].liveStreamingDetails && j.items[0].liveStreamingDetails.activeLiveChatId;
+      if (!chatId) { console.warn('[chatComics] YouTube: no active live chat for', videoId, j.error || ''); return retry(); }
+    } catch (e) { console.warn('[chatComics] YouTube lookup failed', e); return retry(); }
+
+    let pageToken = '', first = true;
+    const poll = async () => {
+      let wait = CFG.ytpoll;
+      try {
+        const r = await fetch(`${API}liveChat/messages?liveChatId=${encodeURIComponent(chatId)}&part=snippet,authorDetails&maxResults=200&key=${encodeURIComponent(key)}${pageToken ? '&pageToken=' + pageToken : ''}`);
+        const j = await r.json();
+        if (j.error) {
+          console.warn('[chatComics] YouTube:', j.error.message);
+          if (r.status === 403 || r.status === 404) return retry(); // chat ended or quota hit
+          wait = 15000;
+        } else {
+          pageToken = j.nextPageToken || pageToken;
+          wait = Math.max(CFG.ytpoll, j.pollingIntervalMillis || 0);
+          if (!first) {
+            // spread a batch out over the poll window (and drop anything sent while the overlay was hidden)
+            const items = (j.items || []).filter(it => it.snippet && it.snippet.displayMessage && !(Date.parse(it.snippet.publishedAt) < shownAt));
+            items.forEach((it, i) => setTimeout(() => handleChat({
+              name: it.authorDetails.displayName,
+              login: it.authorDetails.channelId,
+              text: it.snippet.displayMessage,
+              platform: 'youtube',
+              badges: roleBadges(it.authorDetails),
+            }), (i / Math.max(1, items.length)) * wait * .8));
+          }
+          first = false; // skip backlog on connect
+        }
+      } catch (e) { wait = 15000; }
+      setTimeout(poll, wait);
+    };
+    poll();
+  }
+
+  // ---------------- Kick (anonymous, Kick's public Pusher chat socket) ----------------
+  const KICK_PUSHER = 'wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0&flash=false';
+  const KICK_ROLE = { broadcaster: 'owner', moderator: 'mod', vip: 'vip', og: 'founder', founder: 'founder',
+    subscriber: 'sub', verified: 'verified', staff: 'staff', sub_gifter: 'gifter' };
+  let kickSubBadges = []; // [{ months, url }], longest first
+  async function connectKick(slug) {
+    let chatroom;
+    try {
+      const ch = await getJSON(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`);
+      chatroom = ch.chatroom && ch.chatroom.id;
+      if (!chatroom) throw new Error('no chatroom');
+      kickSubBadges = (ch.subscriber_badges || []).map(b => ({ months: b.months, url: b.badge_image && b.badge_image.src }))
+        .filter(b => b.url).sort((a, b) => b.months - a.months);
+      if (ch.user_id && String(ch.user_id) !== kickUserId) { kickUserId = String(ch.user_id); if (CFG.extemotes) loadExtEmotes(); }
+    } catch (e) { console.warn('[chatComics] Kick channel lookup failed for', slug, e); return setTimeout(() => connectKick(slug), 30000); }
+    kickSocket(chatroom);
+  }
+  function kickSocket(chatroom) {
+    const ws = new WebSocket(KICK_PUSHER);
+    ws.onmessage = (ev) => {
+      let o; try { o = JSON.parse(ev.data); } catch { return; }
+      if (o.event === 'pusher:connection_established') {
+        ws.send(JSON.stringify({ event: 'pusher:subscribe', data: { auth: '', channel: `chatrooms.${chatroom}.v2` } }));
+        return;
+      }
+      if (o.event === 'pusher:ping') { ws.send(JSON.stringify({ event: 'pusher:pong', data: {} })); return; }
+      let d; try { d = typeof o.data === 'string' ? JSON.parse(o.data) : o.data; } catch { return; }
+      if (!d) return;
+      if (o.event === 'App\\Events\\ChatMessageEvent') {
+        const s = d.sender || {};
+        const rep = d.metadata && d.metadata.original_sender;
+        handleChat({
+          name: s.username,
+          login: s.slug || s.username,
+          text: (d.content || '').replace(/\[emote:\d+:([^\]]+)\]/g, '$1'),
+          tokens: kickTokens(d.content || ''),
+          color: s.identity && s.identity.color,
+          platform: 'kick',
+          badges: kickBadges(s.identity && s.identity.badges),
+          msgId: d.id,
+          replyTo: rep && rep.username ? { name: rep.username, login: rep.slug || rep.username } : null,
+        });
+      } else if (o.event === 'App\\Events\\MessageDeletedEvent') {
+        const id = d.message && d.message.id; if (id) redact(b => b.msgId === id);
+      } else if (o.event === 'App\\Events\\UserBannedEvent') {
+        const u = d.user && (d.user.slug || d.user.username);
+        if (u) { const k = 'kick:' + u.toLowerCase(); redact(b => (b.key || b.who) === k); }
+      }
+    };
+    ws.onclose = () => setTimeout(() => kickSocket(chatroom), 3000);
+    ws.onerror = () => {};
+  }
+  // Kick emotes arrive inline as [emote:ID:name]
+  function kickTokens(content) {
+    const out = [], re = /\[emote:(\d+):([^\]]+)\]/g;
+    let m, i = 0;
+    while ((m = re.exec(content))) {
+      if (m.index > i) out.push({ t: 'text', v: content.slice(i, m.index) });
+      out.push({ t: 'emote', code: m[2], url: `https://files.kick.com/emotes/${m[1]}/fullsize` });
+      i = re.lastIndex;
+    }
+    if (i < content.length) out.push({ t: 'text', v: content.slice(i) });
+    return out;
+  }
+  function kickBadges(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(b => {
+      const role = KICK_ROLE[b.type];
+      if (b.type === 'subscriber') {
+        const sb = kickSubBadges.find(x => x.months <= (b.count || 1)) || kickSubBadges[kickSubBadges.length - 1];
+        if (sb) return { url: sb.url, role };
+      }
+      return role ? { role } : null;
+    }).filter(Boolean);
+  }
+
+  // ---------------- demo mode ----------------
+  // Little scripted scenes so the demo shows off replies, moods, shouts, thoughts and events.
+  function runDemo() {
+    const cast = {
+      NeonWhiskers: '#FF4500', bass_drop_betty: '#1E90FF', PixelPaws: '#9ACD32', GlowstickGary: '#FF69B4',
+      mochi_raver: '#8A2BE2', lofi_luna: '#00C78C', DJ_Catnip: '#DAA520', sunny_sardine: '#5F9EA0',
+    };
+    const plat = (n) => ['twitch', 'kick', 'youtube', 'tiktok'][hash(n) % 4];
+    const scenes = [
+      [['lofi_luna', 'hi chat!! 👋'], ['PixelPaws', 'heyyy welcome back', 'lofi_luna'], ['lofi_luna', 'missed you guys ❤️', 'PixelPaws']],
+      [['GlowstickGary', 'WAIT DID YOU SEE THAT'], ['mochi_raver', 'no?? what happened', 'GlowstickGary'], ['GlowstickGary', 'first try on the hardest jump', 'mochi_raver'], ['mochi_raver', 'no way 😱', 'GlowstickGary']],
+      [['bass_drop_betty', 'is it just me or is the game lagging'], ['DJ_Catnip', "it's just you lol", 'bass_drop_betty'], ['bass_drop_betty', 'rude 😭', 'DJ_Catnip']],
+      [['sunny_sardine', 'what if we beat the boss with only a spoon...'], ['NeonWhiskers', 'worst idea ever. do it', 'sunny_sardine']],
+      [['PixelPaws', 'gg'], ['lofi_luna', 'GG WP'], ['DJ_Catnip', 'that was so close lmao']],
+      [['NeonWhiskers', 'does a little victory dance', null, true], ['GlowstickGary', 'haha the dance 😂', 'NeonWhiskers']],
+      [['mochi_raver', 'who wants pizza after stream?'], ['bass_drop_betty', 'me me me 🍕', 'mochi_raver'], ['GlowstickGary', 'pineapple or riot', 'bass_drop_betty'], ['bass_drop_betty', 'RIOT', 'GlowstickGary']],
+      [['DJ_Catnip', 'hydrate check 💧'], ['sunny_sardine', 'thank you, mom', 'DJ_Catnip']],
+      [['lofi_luna', 'wait how did he get past that?'], ['PixelPaws', 'there is a secret ledge on the left', 'lofi_luna'], ['lofi_luna', 'hmm interesting', 'PixelPaws']],
+      [['GlowstickGary', 'ugh this boss again'], ['NeonWhiskers', 'we believe in you', 'GlowstickGary']],
+    ];
+    const events = [
+      { event: true, who: 'PixelPaws', splash: '12 MONTHS!', caption: 'PixelPaws resubscribed!', text: 'a whole year of chaos 🎉' },
+      { event: true, who: 'mochi_raver', splash: 'RAID!', caption: 'mochi_raver is raiding with 37 viewers!' },
+      { event: true, who: 'DJ_Catnip', recipient: 'lofi_luna', splash: 'GIFT SUB!', caption: 'DJ_Catnip gifted a sub to lofi_luna!' },
+    ];
+    const key = (n) => upsertChatter({ name: n, platform: plat(n), color: cast[n], badges: n === 'NeonWhiskers' ? [{ role: 'owner' }] : n === 'DJ_Catnip' ? [{ role: 'mod' }] : [] });
+    let n = 0, last = -1;
+    const scene = () => {
+      if (hidden) return setTimeout(scene, 1000);
+      n++;
+      if (n % 5 === 0) {
+        const e = { ...events[(n / 5 - 1) % events.length] };
+        e.who = key(e.who);
+        if (e.recipient) e.recipient = key(e.recipient);
+        e.tokens = e.text ? [{ t: 'text', v: e.text }] : null;
+        enqueue(e, true);
+        return setTimeout(scene, 5500);
+      }
+      let i; do { i = Math.floor(Math.random() * scenes.length); } while (i === last && scenes.length > 1);
+      last = i;
+      let t = 0;
+      for (const [who, text, to, action] of scenes[i]) {
+        setTimeout(() => {
+          key(who);
+          handleChat({ name: who, text, color: cast[who], platform: plat(who), action: !!action,
+            badges: chatters.get(plat(who) + ':' + who.toLowerCase()).badges,
+            replyTo: to ? { name: to, login: to.toLowerCase() } : null });
+        }, t);
+        t += 1900 + Math.random() * 1400;
+      }
+      setTimeout(scene, t + 2500 + Math.random() * 2500);
+    };
+    setTimeout(scene, 700);
+  }
+
+  // ---------------- public known-bot list (TwitchInsights) ----------------
+  // Adds ~1k known bot accounts to the ignore list. If the site can't be reached (offline,
+  // blocked, or it refuses browser requests) the overlay just keeps using your own ignore list.
+  async function loadBotList() {
+    try {
+      const r = await fetch('https://api.twitchinsights.net/v1/bots/all', { cache: 'no-store' });
+      const j = await r.json();
+      let n = 0;
+      (j.bots || []).forEach(b => { const name = Array.isArray(b) ? b[0] : b; if (name) { CFG.ignore.add(String(name).toLowerCase()); n++; } });
+      console.log('[chatComics] loaded', n, 'known bots');
+    } catch (e) {
+      console.warn('[chatComics] known-bot list unavailable, using ignore= only', e);
+    }
+    setTimeout(loadBotList, 6 * 3600 * 1000); // refresh every 6 hours
+  }
+
+  // ---------------- settings window ----------------
+  // Open it from OBS: right-click the source → Interact, move the mouse, click the gear.
+  (function settingsUI() {
+    const gear = document.createElement('button');
+    gear.id = 'gear'; gear.title = 'Chat Comics settings';
+    gear.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm9 3.5-2.2-.8a7 7 0 0 0-.6-1.5l1-2.1-1.8-1.8-2.1 1a7 7 0 0 0-1.5-.6L13 2h-2l-.8 2.2a7 7 0 0 0-1.5.6l-2.1-1-1.8 1.8 1 2.1a7 7 0 0 0-.6 1.5L3 11v2l2.2.8c.1.5.3 1 .6 1.5l-1 2.1 1.8 1.8 2.1-1c.5.3 1 .5 1.5.6L11 22h2l.8-2.2a7 7 0 0 0 1.5-.6l2.1 1 1.8-1.8-1-2.1c.3-.5.5-1 .6-1.5L21 13z" fill="#111"/></svg>';
+    document.body.appendChild(gear);
+
+    const panel = document.createElement('div');
+    panel.id = 'settings';
+    panel.innerHTML = `<div class="sp" role="dialog" aria-label="Chat Comics settings">
+      <div class="sp-head"><h2>Chat Comics — Settings</h2>
+        <p>Saved in this browser source and applied when you press <b>Save &amp; apply</b>. Heads up: this window shows on stream while it's open.</p></div>
+      <div class="sp-body"></div>
+      <div class="sp-foot">
+        <button class="sp-btn" data-act="test">Test message</button>
+        <button class="sp-btn" data-act="link">Copy setup link</button>
+        <button class="sp-btn warn" data-act="reset">Reset</button>
+        <span class="sp-msg grow"></span>
+        <button class="sp-btn" data-act="close">Cancel</button>
+        <button class="sp-btn go" data-act="save">Save &amp; apply</button>
+        <input class="sp-link" readonly>
+      </div></div>`;
+    document.body.appendChild(panel);
+    const body = panel.querySelector('.sp-body'), msg = panel.querySelector('.sp-msg'), linkBox = panel.querySelector('.sp-link');
+    const inputs = {};
+
+    let sec = null;
+    for (const f of FIELDS) {
+      if (f.sec) {
+        sec = document.createElement('div'); sec.className = 'sp-sec';
+        const h = document.createElement('h3'); h.textContent = f.sec; sec.appendChild(h);
+        body.appendChild(sec); continue;
+      }
+      const wrapF = document.createElement('div'); wrapF.className = 'sp-f';
+      const id = 'sp-' + f.k;
+      const lab = document.createElement('label'); lab.htmlFor = id; lab.textContent = f.label;
+      let inp;
+      if (f.type === 'bool') {
+        const row = document.createElement('div'); row.className = 'sp-row';
+        const sw = document.createElement('span'); sw.className = 'sw';
+        inp = document.createElement('input'); inp.type = 'checkbox';
+        sw.append(inp, document.createElement('i'));
+        row.append(lab, sw); wrapF.appendChild(row);
+      } else if (f.type === 'select') {
+        inp = document.createElement('select');
+        f.opts.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; inp.appendChild(o); });
+        wrapF.append(lab, inp);
+      } else {
+        inp = document.createElement(f.type === 'area' ? 'textarea' : 'input');
+        if (f.type !== 'area') inp.type = f.type === 'num' ? 'number' : f.type;
+        if (f.type === 'num') { inp.min = f.min; inp.max = f.max; inp.step = f.step; }
+        if (f.ph) inp.placeholder = f.ph;
+        inp.spellcheck = false; inp.autocomplete = 'off';
+        wrapF.append(lab, inp);
+      }
+      inp.id = id;
+      if (f.help) { const sm = document.createElement('small'); sm.textContent = f.help; wrapF.appendChild(sm); }
+      if (f.k in fromURL) {
+        inp.disabled = true;
+        const sm = document.createElement('small'); sm.className = 'url';
+        sm.textContent = 'Set by the source URL, which overrides this.';
+        wrapF.appendChild(sm);
+      }
+      inputs[f.k] = inp;
+      sec.appendChild(wrapF);
+    }
+
+    const fill = (vals) => {
+      for (const [k, inp] of Object.entries(inputs)) {
+        const v = vals[k];
+        if (FIELD[k].type === 'bool') inp.checked = !!v; else inp.value = v;
+      }
+    };
+    const read = () => {
+      const out = {};
+      for (const [k, inp] of Object.entries(inputs)) {
+        const f = FIELD[k];
+        out[k] = coerce(f, f.type === 'bool' ? inp.checked : inp.value);
+      }
+      return out;
+    };
+    const open = () => { fill(S); msg.textContent = storageOK ? '' : 'This browser source can\'t save settings — use "Copy setup link" instead.'; linkBox.style.display = 'none'; panel.classList.add('open'); };
+    const close = () => panel.classList.remove('open');
+
+    gear.addEventListener('click', open);
+    panel.addEventListener('mousedown', e => { if (e.target === panel) close(); });
+    addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+
+    panel.querySelector('.sp-foot').addEventListener('click', e => {
+      const act = e.target.dataset && e.target.dataset.act;
+      if (!act) return;
+      if (act === 'close') close();
+      if (act === 'test') {
+        const n = ['TestPilot', 'SettingsSam', 'PreviewPat', 'DemoDee'][Math.floor(Math.random() * 4)];
+        window.chatComics.say(n, 'This is how chat will look! 💬', { platform: CFG.channel ? 'twitch' : CFG.kick ? 'kick' : CFG.youtube ? 'youtube' : CFG.tiktok ? 'tiktok' : 'custom' });
+        msg.textContent = 'Sent a test message (uses the settings currently running).';
+      }
+      if (act === 'reset') {
+        const d = {}; for (const f of Object.values(FIELD)) d[f.k] = f.def;
+        fill(d); msg.textContent = 'Defaults filled in — press Save & apply to keep them.';
+      }
+      if (act === 'link') {
+        const vals = read(), q = new URLSearchParams();
+        for (const f of Object.values(FIELD)) {
+          const v = vals[f.k];
+          if (v === f.def) continue;
+          q.set(f.k, f.type === 'bool' ? (v ? '1' : '0') : String(v));
+        }
+        const link = location.href.split(/[?#]/)[0] + (q.toString() ? '?' + q.toString() : '');
+        linkBox.value = link; linkBox.style.display = 'block'; linkBox.select();
+        const done = () => { msg.textContent = 'Setup link copied' + (vals.ytkey ? ' (it includes your YouTube API key — keep it private).' : '.'); };
+        try { navigator.clipboard.writeText(link).then(done, () => { document.execCommand('copy'); done(); }); }
+        catch (err) { try { document.execCommand('copy'); done(); } catch (e2) { msg.textContent = 'Copy the link from the box below.'; } }
+      }
+      if (act === 'save') {
+        try {
+          const vals = read();
+          // fields locked by the URL keep whatever was saved before (the URL value isn't a choice made here)
+          for (const k in fromURL) { if (k in saved) vals[k] = coerce(FIELD[k], saved[k]); else delete vals[k]; }
+          localStorage.setItem(STORE_KEY, JSON.stringify(vals));
+          msg.textContent = 'Saved! Reloading…';
+          setTimeout(() => location.reload(), 250);
+        } catch (err) {
+          msg.textContent = 'Couldn\'t save here — use "Copy setup link" and paste it as the source URL.';
+        }
+      }
+    });
+
+    // gear only appears while a mouse is over the overlay (i.e. in OBS's Interact window)
+    let mt;
+    addEventListener('mousemove', () => {
+      document.body.classList.add('mouse');
+      clearTimeout(mt); mt = setTimeout(() => document.body.classList.remove('mouse'), 3000);
+    });
+    document.addEventListener('mouseleave', () => document.body.classList.remove('mouse'));
+  })();
+
+  // ---------------- boot ----------------
+  // re-measure once the comic fonts arrive (they change every bubble's size)
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => panels.forEach(relayout));
+  if (CFG.botlist) loadBotList();
+  if (CFG.extemotes) {
+    loadExtEmotes();
+    setInterval(loadExtEmotes, 10 * 60 * 1000);
+  }
+  if (CFG.channel) connectTwitch(CFG.channel);
+  if (CFG.badges && CFG.channel) loadTwitchBadges(CFG.channel);
+  if (CFG.kick) connectKick(CFG.kick);
+  if (CFG.tiktok) connectBridge(CFG.tiktok, 'tiktok');
+  if (CFG.youtube) {
+    if (/^wss?:\/\//i.test(CFG.youtube)) connectBridge(CFG.youtube, 'youtube');
+    else if (CFG.ytkey) connectYouTube(CFG.youtube.replace(/^.*(?:v=|youtu\.be\/|live\/)([\w-]{11}).*$/, '$1'), CFG.ytkey);
+    else console.warn('[chatComics] youtube= needs ytkey= (or a ws:// bridge URL)');
+  }
+  if (CFG.demo) runDemo();
+})();
+</script>
+</body>
+</html>
