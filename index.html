@@ -87,6 +87,9 @@
   @keyframes breathe{0%,100%{transform:none}50%{transform:scale(1.02,1.035)}}
   .char .eyes{animation:blink 4.7s var(--bd,0s) infinite;transform-box:fill-box;transform-origin:center}
   @keyframes blink{0%,93%,100%{transform:none}96%{transform:scaleY(.1)}}
+  .char .wav{transform-box:view-box}
+  .char.talking .wav{animation:wave .32s ease-in-out infinite alternate}
+  @keyframes wave{from{transform:rotate(-9deg)}to{transform:rotate(11deg)}}
   .char .mo{opacity:0}
   .char.talking .mo{animation:talk .2s infinite alternate}
   .char.talking .mc{animation:talk .2s infinite alternate-reverse}
@@ -391,27 +394,42 @@
   // the mood of what they said.
   const INK = '#111';
   const IRIS = ['#3fa9ff', '#ff5fa8', '#8b6cff', '#35c46a', '#ffb02e', '#ff6a3c', '#2bd4c9', '#6b4bff'];
+  // Body shapes are described by their half-width at each height (hw), so any profile works:
+  // domes, boxes, bells, or a separate head on top of a body. T is the top of the head, and
+  // face (when given) is the half-width the face is laid out on.
+  const dome = (W, T, n, flare) => ({ W, T, hw: (y) => y < 72
+    ? W * Math.max(0, 1 - Math.min(1, (72 - y) / (72 - T)) ** n) ** (1 / n)
+    : W + flare * (y - 72) / 60 });
   const BODIES = {
-    round: { W: 42, T: 22, n: 2.2, flare: 6 },
-    tall:  { W: 37, T: 16, n: 2.1, flare: 7 },
-    wide:  { W: 47, T: 28, n: 2.7, flare: 4 },
-    pear:  { W: 35, T: 21, n: 2.0, flare: 16 },
+    round:   dome(42, 22, 2.2, 6),
+    tall:    dome(37, 16, 2.1, 7),
+    wide:    dome(47, 28, 2.7, 4),
+    pear:    dome(35, 21, 2.0, 16),
+    boxy:    dome(41, 23, 5, 2),
+    bell:    dome(31, 18, 2.0, 30),
+    gumdrop: dome(44, 20, 1.6, 10),
+    peanut: { W: 40, T: 18, face: 27, hw: (y) => {
+      const hy = 18 + 25, hr = 25.5;
+      const head = Math.abs(y - hy) < hr ? Math.sqrt(hr * hr - (y - hy) ** 2) * 1.08 : 0;
+      const y0 = 64, y1 = 92;
+      const bod = y < y0 ? 0 : y < y1 ? 40 * Math.sqrt(1 - ((y1 - y) / (y1 - y0)) ** 2) : 40 + 8 * (y - y1) / 40;
+      return Math.max(head, bod);
+    } },
   };
 
   // points listed clockwise on screen; each hop is an arc that bulges outward
   const scallop = (pts, r) => `M${pts[0]} ` + pts.slice(1).map(p => `A${r} ${r} 0 0 1 ${p}`).join(' ');
   const f1 = (v) => +v.toFixed(1);
 
-  // The body outline: straight-ish sides and a superellipse dome, re-sampled evenly and drawn
-  // as a row of tiny bumps so it reads as fur.
-  function furPath(b, step) {
-    const cy = 72, raw = [[50 - b.W - b.flare, 132]];
-    for (let i = 0; i <= 40; i++) {
-      const a = Math.PI * (1 + i / 40), c = Math.cos(a), s = Math.sin(a);
-      raw.push([50 + b.W * Math.sign(c) * Math.abs(c) ** (2 / b.n), cy + (cy - b.T) * Math.sign(s) * Math.abs(s) ** (2 / b.n)]);
-    }
-    raw.push([50 + b.W + b.flare, 132]);
-    // walk the outline and drop a point every `step` units
+  // The body outline, walked clockwise from the bottom left, over the top, down to the bottom right.
+  function outline(b) {
+    const raw = [];
+    for (let i = 0; i <= 90; i++) { const u = i / 90, y = b.T + (132 - b.T) * u * u; raw.unshift([50 - b.hw(y), y]); }
+    for (let i = 1; i <= 90; i++) { const u = i / 90, y = b.T + (132 - b.T) * u * u; raw.push([50 + b.hw(y), y]); }
+    return raw.filter((p, i) => i === 0 || Math.hypot(p[0] - raw[i - 1][0], p[1] - raw[i - 1][1]) > .05);
+  }
+  // re-sample a polyline so points are `step` apart
+  function resample(raw, step) {
     const pts = [raw[0]];
     let carry = 0;
     for (let i = 1; i < raw.length; i++) {
@@ -421,11 +439,37 @@
       while (d <= len) { const t = d / len; pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]); d += step; }
       carry = len - (d - step);
     }
-    const last = raw[raw.length - 1];
-    pts.push(last);
-    return scallop(pts.map(p => f1(p[0]) + ' ' + f1(p[1])), f1(step * .62)) + ` L${f1(last[0])} 140 L${f1(raw[0][0])} 140Z`;
+    pts.push(raw[raw.length - 1]);
+    return pts;
+  }
+  // Fur from smooth felt to shaggy. Outward is to the left of the direction of travel.
+  function furPath(b, fur, R) {
+    const raw = outline(b), first = raw[0], last = raw[raw.length - 1];
+    const tail = ` L${f1(last[0])} 140 L${f1(first[0])} 140Z`;
+    const P = (p) => f1(p[0]) + ' ' + f1(p[1]);
+    if (fur === 'smooth') return 'M' + resample(raw, 2.5).map(P).join(' L') + tail;
+    if (fur === 'short') return scallop(resample(raw, 3.3).map(P), 2.1) + tail;
+    if (fur === 'fuzzy') { const st = 4.2 + R() * 1.6; return scallop(resample(raw, st).map(P), f1(st * .62)) + tail; }
+    // shaggy: pointed tufts of uneven length
+    const pts = resample(raw, 6.5);
+    let d = 'M' + P(pts[0]);
+    for (let i = 1; i < pts.length; i++) {
+      const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], dx = x1 - x0, dy = y1 - y0, l = Math.hypot(dx, dy) || 1;
+      const k = 3.5 + R() * 4, mx = (x0 + x1) / 2 + dy / l * k, my = (y0 + y1) / 2 - dx / l * k;
+      d += ` Q${f1(x0 + dy / l * k * .4)} ${f1(y0 - dx / l * k * .4)} ${f1(mx)} ${f1(my)} Q${f1(x1 + dy / l * k * .2)} ${f1(y1 - dx / l * k * .2)} ${P(pts[i])}`;
+    }
+    return d + tail;
+  }
+  // a smooth copy of the body below `top`, nudged out a little: the cut of a shirt
+  function shirtPath(b, top, neck) {
+    const raw = outline(b).filter(p => p[1] >= top);
+    const left = raw.filter(p => p[0] < 50), right = raw.filter(p => p[0] >= 50);
+    const L = left.map(([x, y]) => `${f1(x - 1.5)} ${f1(y)}`), Rr = right.map(([x, y]) => `${f1(x + 1.5)} ${f1(y)}`);
+    const tl = left[left.length - 1], tr = right[0];
+    return `M${L.join(' L')} ${neck(tl[0] - 1.5, tr[0] + 1.5, top)} L${Rr.join(' L')} L${f1(right[right.length - 1][0] + 1.5)} 140 L${f1(left[0][0] - 1.5)} 140Z`;
   }
 
+  const SHIRTS = ['#ff4f6d', '#ffd23f', '#4fb6ff', '#8b6cff', '#3ddc84', '#ff8a3d', '#ffffff', '#2d2d3a', '#ff7ad9'];
   const specCache = new Map();
   function charSpec(name) {
     const key = name.toLowerCase();
@@ -433,7 +477,7 @@
     if (s) return s;
     const R = rng(hash('monster:' + key));
     s = {
-      body: pick(R, ['round', 'round', 'tall', 'wide', 'pear']),
+      body: pick(R, ['round', 'round', 'tall', 'wide', 'pear', 'boxy', 'bell', 'gumdrop', 'peanut', 'peanut']),
       eyes: pick(R, [2, 2, 2, 2, 1, 3]),
       iris: pick(R, IRIS),
       sleepy: R() < .22,
@@ -444,14 +488,19 @@
       belly: R() < .55,
       spots: R() < .3,
       acc: R() < .4 ? pick(R, ['bow', 'flower', 'glasses', 'headphones', 'partyhat']) : null,
-      fuzz: 4.2 + R() * 2.2,
+      fur: pick(R, ['smooth', 'short', 'fuzzy', 'fuzzy', 'shaggy']),
+      arms: R() < .68,
+      hand: R() < .5 ? 1 : -1,           // which hand waves
+      shirt: R() < .55 ? pick(R, ['tee', 'vneck', 'hoodie', 'sweater', 'initial', 'overalls', 'bowtie', 'scarf', 'tee']) : null,
+      shirtC: pick(R, SHIRTS),
       tilt: (R() - .5) * 7,
       seed: Math.floor(R() * 1e9),
+      initial: (Array.from(name).find(c => /[\p{L}\p{N}]/u.test(c)) || '?').toUpperCase(),
     };
     s.stalks = s.eyes === 2 && R() < .2;
     if (s.acc === 'glasses' && (s.eyes !== 2 || s.stalks)) s.acc = 'bow';
     if (s.acc === 'partyhat' && (s.top === 'unihorn' || s.top === 'bunny' || s.top === 'antennae')) s.acc = 'flower';
-    s.path = furPath(BODIES[s.body], s.fuzz);
+    s.path = furPath(BODIES[s.body], s.fur, rng(s.seed));
     specCache.set(key, s);
     if (specCache.size > 3000) specCache.delete(specCache.keys().next().value);
     return s;
@@ -461,7 +510,7 @@
   function charSVG(spec, pal, o) {
     const id = 'cs' + (++svgUid);
     const expr = o.expr || 'talk', look = o.look || 0;
-    const b = BODIES[spec.body], T = b.T, W = b.W;
+    const b = BODIES[spec.body], T = b.T, W = b.face || b.W, Bw = b.W;  // W: face width, Bw: body width
     const fur = pal.main, furD = pal.dark, furL = pal.light, acc = pal.acc, accD = pal.accD;
     const st = `stroke="${INK}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"`;
     const dark = '#4a1020', tongue = '#ff7b98';
@@ -646,16 +695,103 @@
     // ---- assemble ----
     const R = rng(spec.seed);
     let body = `<path d="${spec.path}" fill="${fur}" ${st}/>`;
-    if (spec.belly) body += `<ellipse cx="50" cy="${f1(T + 96)}" rx="${f1(W * .62)}" ry="30" fill="${furL}" opacity=".85"/>`;
+    const shirted = spec.shirt && spec.shirt !== 'bowtie' && spec.shirt !== 'scarf';
+    if (spec.belly && !shirted) body += `<ellipse cx="50" cy="${f1(T + 96)}" rx="${f1(Bw * .62)}" ry="30" fill="${furL}" opacity=".85"/>`;
     if (spec.spots) for (let i = 0; i < 3; i++) {
-      const sx = 50 + (i % 2 ? 1 : -1) * W * (.55 + R() * .25), sy = T + 50 + R() * 40;
+      const sy = T + 50 + R() * 40, sx = 50 + (i % 2 ? 1 : -1) * b.hw(sy) * (.55 + R() * .25);
       body += `<ellipse cx="${f1(sx)}" cy="${f1(sy)}" rx="${f1(3.5 + R() * 3)}" ry="${f1(3 + R() * 2.5)}" fill="${furD}" opacity=".55"/>`;
     }
     // a few fur flicks
-    for (let i = 0; i < 5; i++) {
-      const fx = 50 + (R() - .5) * W * 1.5, fy = T + 46 + R() * 50;
+    if (spec.fur !== 'smooth') for (let i = 0; i < 5; i++) {
+      const fy = T + 46 + R() * 50, fx = 50 + (R() - .5) * b.hw(fy) * 1.5;
       body += `<path d="M${f1(fx - 3)} ${f1(fy)} q2 -4 3 0 q1 -4 3 0" fill="none" stroke="${furD}" stroke-width="1.7" stroke-linecap="round" opacity=".55"/>`;
     }
+    // ---- clothes ----
+    const shirtTop = Math.max(my + 19, T + 52), sc = spec.shirtC, scD = shade(sc, -.28);
+    const crew = (xl, xr, y) => `Q50 ${f1(y + 9)} ${f1(xr)} ${f1(y)}`;
+    const vee = (xl, xr, y) => `L50 ${f1(y + 15)} L${f1(xr)} ${f1(y)}`;
+    const flat = (xl, xr, y) => `L${f1(xr)} ${f1(y)}`;
+    let shirt = '';
+    switch (spec.shirt) {
+      case 'tee': shirt = `<path d="${shirtPath(b, shirtTop, crew)}" fill="${sc}" ${st}/>`; break;
+      case 'vneck': shirt = `<path d="${shirtPath(b, shirtTop, vee)}" fill="${sc}" ${st}/>`; break;
+      case 'hoodie':
+        shirt = `<path d="${shirtPath(b, shirtTop, crew)}" fill="${sc}" ${st}/>`
+          + `<path d="M45 ${f1(shirtTop + 7)} L44 ${f1(shirtTop + 24)} M55 ${f1(shirtTop + 7)} L56 ${f1(shirtTop + 24)}" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"/>`
+          + `<circle cx="44" cy="${f1(shirtTop + 25)}" r="1.8" fill="#fff" stroke="${INK}" stroke-width="1.3"/><circle cx="56" cy="${f1(shirtTop + 25)}" r="1.8" fill="#fff" stroke="${INK}" stroke-width="1.3"/>`
+          + `<path d="M${f1(50 - Bw * .5)} ${f1(shirtTop + 32)} H${f1(50 + Bw * .5)} L${f1(50 + Bw * .58)} 140 H${f1(50 - Bw * .58)}Z" fill="${scD}" opacity=".35" ${st}/>`;
+        break;
+      case 'sweater':
+        shirt = `<pattern id="${id}sw" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="${sc}"/><rect y="6" width="10" height="4" fill="#fff" opacity=".7"/></pattern>`
+          + `<path d="${shirtPath(b, shirtTop, crew)}" fill="url(#${id}sw)" ${st}/>`;
+        break;
+      case 'initial':
+        shirt = `<path d="${shirtPath(b, shirtTop, crew)}" fill="${sc}" ${st}/>`
+          + `<circle cx="50" cy="${f1(shirtTop + 24)}" r="9.5" fill="#fff" ${st}/>`
+          + `<text x="50" y="${f1(shirtTop + 29.5)}" text-anchor="middle" font-family="Bangers, sans-serif" font-size="15" fill="${sc === '#ffffff' ? INK : sc}" stroke="${INK}" stroke-width=".8">${spec.initial.replace(/[<&>"]/g, '')}</text>`;
+        break;
+      case 'overalls': {
+        const den = '#3f6fd6', bt = shirtTop + 10, sw = b.hw(shirtTop) - 7;
+        shirt = `<path d="${shirtPath(b, shirtTop + 30, flat)}" fill="${den}" ${st}/>`
+          + `<rect x="${f1(50 - Bw * .42)}" y="${f1(bt)}" width="${f1(Bw * .84)}" height="${f1(140 - bt)}" rx="3" fill="${den}" ${st}/>`
+          + `<path d="M${f1(50 - Bw * .38)} ${f1(bt + 2)} L${f1(50 - sw)} ${f1(shirtTop - 3)} M${f1(50 + Bw * .38)} ${f1(bt + 2)} L${f1(50 + sw)} ${f1(shirtTop - 3)}" stroke="${INK}" stroke-width="8" stroke-linecap="round"/>`
+          + `<path d="M${f1(50 - Bw * .38)} ${f1(bt + 2)} L${f1(50 - sw)} ${f1(shirtTop - 3)} M${f1(50 + Bw * .38)} ${f1(bt + 2)} L${f1(50 + sw)} ${f1(shirtTop - 3)}" stroke="${den}" stroke-width="4.4" stroke-linecap="round"/>`
+          + `<circle cx="${f1(50 - Bw * .34)}" cy="${f1(bt + 5)}" r="2.6" fill="#ffd23f" stroke="${INK}" stroke-width="1.4"/><circle cx="${f1(50 + Bw * .34)}" cy="${f1(bt + 5)}" r="2.6" fill="#ffd23f" stroke="${INK}" stroke-width="1.4"/>`
+          + `<rect x="${f1(50 - Bw * .2)}" y="${f1(bt + 13)}" width="${f1(Bw * .4)}" height="12" rx="2" fill="none" stroke="${INK}" stroke-width="1.6" stroke-dasharray="2.5 2"/>`;
+        break;
+      }
+      case 'bowtie': {
+        const y = shirtTop - 2;
+        shirt = `<path d="M50 ${y} L38 ${y - 7} L38 ${y + 7}Z M50 ${y} L62 ${y - 7} L62 ${y + 7}Z" fill="${sc}" ${st}/><rect x="46.5" y="${y - 4}" width="7" height="8" rx="2" fill="${scD}" ${st}/>`;
+        break;
+      }
+      case 'scarf': {
+        const y = shirtTop - 3, xl = 50 - b.hw(y) - 3, xr = 50 + b.hw(y) + 3;
+        shirt = `<path d="M${f1(50 + Bw * .25)} ${y + 3} L${f1(50 + Bw * .5)} ${y + 34} L${f1(50 + Bw * .22)} ${y + 36} L${f1(50 + Bw * .08)} ${y + 4}Z" fill="${sc}" ${st}/>`
+          + `<path d="M${f1(xl)} ${y - 5} Q50 ${y + 4} ${f1(xr)} ${y - 5} L${f1(xr)} ${y + 6} Q50 ${y + 15} ${f1(xl)} ${y + 6}Z" fill="${sc}" ${st}/>`
+          + `<path d="M${f1(xl + 10)} ${y - 1} L${f1(xl + 10)} ${y + 10} M${f1(xr - 10)} ${y - 1} L${f1(xr - 10)} ${y + 10}" stroke="#fff" stroke-width="3" opacity=".7"/>`;
+        break;
+      }
+    }
+    body += shirt;
+
+    // ---- arms: posed by the mood ----
+    let arms = '';
+    if (spec.arms) {
+      const sy = Math.max(my + 22, T + 58);   // shoulder height
+      const sleeve = ['tee', 'vneck', 'hoodie', 'sweater', 'initial'].includes(spec.shirt) ? (spec.shirt === 'sweater' ? `url(#${id}sw)` : sc) : null;
+      const pose = { talk: 'wave', laugh: 'belly', love: 'clasp', sad: 'down', angry: 'fists', wow: 'up', shout: 'up', puzzled: 'scratch', think: 'chin' }[expr] || 'down';
+      const lerp = (a, c, t) => [a[0] + (c[0] - a[0]) * t, a[1] + (c[1] - a[1]) * t];
+      for (const side of [-1, 1]) {
+        let p = pose;
+        if ((pose === 'wave' || pose === 'scratch' || pose === 'chin') && side !== spec.hand) p = 'down';
+        const S = [50 + side * (b.hw(sy) - 5), sy];
+        let H, C;
+        switch (p) {
+          case 'wave': H = [50 + side * (Bw + 15), T + 24]; C = [50 + side * (Bw + 20), sy - 4]; break;
+          case 'up': H = [50 + side * (Bw + 12), T + 6]; C = [50 + side * (Bw + 18), sy - 10]; break;
+          case 'fists': H = [50 + side * Bw * .62, sy - 6]; C = [50 + side * (Bw + 16), sy + 8]; break;
+          case 'clasp': H = [50 + side * 5, sy + 6]; C = [50 + side * Bw * .9, sy + 24]; break;
+          case 'belly': H = [50 + side * Bw * .32, sy + 22]; C = [50 + side * (Bw + 6), sy + 22]; break;
+          case 'chin': H = [50 + side * mw * .5, my + 12]; C = [50 + side * (Bw + 8), sy + 18]; break;
+          case 'scratch': H = [50 + side * W * .8, T + 6]; C = [50 + side * (Bw + 18), sy - 8]; break;
+          default: H = [50 + side * (Bw + 6), sy + 34]; C = [50 + side * (Bw + 10), sy + 14];
+        }
+        const d = `M${f1(S[0])} ${f1(S[1])} Q${f1(C[0])} ${f1(C[1])} ${f1(H[0])} ${f1(H[1])}`;
+        let g = `<path d="${d}" fill="none" stroke="${INK}" stroke-width="12.5" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${fur}" stroke-width="7.6" stroke-linecap="round"/>`;
+        if (sleeve) {
+          const q0 = lerp(S, C, .4), q1 = lerp(C, H, .4), m = lerp(q0, q1, .4);
+          const sd = `M${f1(S[0])} ${f1(S[1])} Q${f1(q0[0])} ${f1(q0[1])} ${f1(m[0])} ${f1(m[1])}`;
+          g += `<path d="${sd}" fill="none" stroke="${INK}" stroke-width="15" stroke-linecap="round"/><path d="${sd}" fill="none" stroke="${sleeve}" stroke-width="10" stroke-linecap="round"/>`;
+        }
+        // hand: a mitten with a thumb, or a fist
+        const [hx, hy] = H;
+        if (p === 'fists') g += `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" fill="${fur}" ${st}/><path d="M${f1(hx - 3.5)} ${f1(hy - 2)} q1.7 -2 3.5 0 q1.7 -2 3.5 0" fill="none" stroke="${INK}" stroke-width="1.5"/>`;
+        else g += `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" fill="${fur}" ${st}/><circle cx="${f1(hx - side * 5)}" cy="${f1(hy - 3.5)}" r="2.9" fill="${fur}" ${st}/>`;
+        arms += p === 'wave' ? `<g class="wav" style="transform-origin:${f1(S[0] + 6)}px ${f1(S[1] + 10)}px">${g}</g>` : g;
+      }
+    }
+
     const blush = expr === 'laugh' || expr === 'love' || expr === 'shout' ? .5 : .28;
     const cheek = `<ellipse cx="${f1(50 - W * .62)}" cy="${f1(my - 2)}" rx="6" ry="3.6" fill="#ff6f91" opacity="${blush}"/><ellipse cx="${f1(50 + W * .62)}" cy="${f1(my - 2)}" rx="6" ry="3.6" fill="#ff6f91" opacity="${blush}"/>`;
     let nose = '';
@@ -689,6 +825,7 @@
       + cheek + nose
       + `<g class="eyes">${eyeSvg}</g>`
       + `<g class="mc">${mc}</g><g class="mo">${mo}</g>`
+      + arms
       + front
       + `</g></g></svg>`;
   }
