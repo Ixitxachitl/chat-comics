@@ -21,7 +21,7 @@
   Every setting can also be given as a URL parameter, which overrides the saved value — handy for
   running two copies with different setups. The panel's "Copy setup link" builds that link for you.
     channel, kick, tiktok (1 = TikFinity), youtube, ytkey, ytpoll, demo, panels, pw, ph, gap, align,
-    vpos, mx, my, title, idle, speed, fs, crown, captions, maxchars, badges, pronouns,
+    vpos, mx, my, title, idle, speed, fs, crown, captions, props, maxchars, badges, pronouns,
     extemotes, events, cmds, firsttime, botlist, ignore        (booleans take 1/0)
 
   Custom integrations (Streamer.bot, etc.) can also call:
@@ -116,6 +116,37 @@
   .tag .badges img{filter:drop-shadow(1px 0 0 var(--ink)) drop-shadow(-1px 0 0 var(--ink)) drop-shadow(0 1px 0 var(--ink)) drop-shadow(0 -1px 0 var(--ink))}
   .tag .pro{font:700 11px/1 'Comic Neue',sans-serif;letter-spacing:0;color:var(--ink);text-shadow:none;flex:none;
     background:#fff;border:2px solid var(--ink);border-radius:5px;padding:2px 3px 1px}
+
+  /* ---------- props ---------- */
+  .prop{position:absolute;bottom:calc(var(--ch) * -.03);z-index:2;animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both}
+  .prop svg{width:100%;height:100%;display:block;overflow:visible}
+  .prop svg *{transform-box:fill-box}
+  .pf-steam{animation:pfSteam 2.4s ease-in infinite;transform-origin:50% 100%}
+  @keyframes pfSteam{0%{opacity:0;transform:translateY(6px) scaleY(.6)}30%{opacity:.9}100%{opacity:0;transform:translateY(-14px) scaleY(1.1)}}
+  .pf-note{animation:pfNote 2.2s ease-out infinite}
+  @keyframes pfNote{0%{opacity:0;transform:translate(0,6px) rotate(-10deg)}20%{opacity:1}100%{opacity:0;transform:translate(10px,-28px) rotate(15deg)}}
+  .pf-bob{animation:pfBob 2.4s ease-in-out infinite alternate}
+  @keyframes pfBob{to{transform:translateY(-5px)}}
+  .pf-sway{animation:pfSway 3s ease-in-out infinite alternate;transform-origin:50% 100%}
+  @keyframes pfSway{from{transform:rotate(-5deg)}to{transform:rotate(5deg)}}
+  .pf-flame{animation:pfFlame .35s ease-in-out infinite alternate;transform-origin:50% 100%}
+  @keyframes pfFlame{to{transform:scale(.86,1.16)}}
+  .pf-flicker{animation:pfFlicker 1.6s steps(2) infinite}
+  @keyframes pfFlicker{50%{opacity:.8}}
+  .pf-pulse{animation:pfPulse .48s ease-in-out infinite alternate;transform-origin:50% 50%}
+  @keyframes pfPulse{to{transform:scale(1.12)}}
+  .pf-blink{animation:pfBlink 1s steps(1) infinite}
+  @keyframes pfBlink{50%{opacity:0}}
+  .pf-shake{animation:pfShake 1.8s ease-in-out infinite;transform-origin:50% 100%}
+  @keyframes pfShake{0%,70%,100%{transform:none}75%{transform:rotate(-6deg)}85%{transform:rotate(6deg)}92%{transform:rotate(-3deg)}}
+  .pf-swim{animation:pfSwim 3.2s ease-in-out infinite alternate}
+  @keyframes pfSwim{from{transform:translateX(-7px)}to{transform:translateX(7px)}}
+  .pf-swish{animation:pfSwish 1.4s ease-in-out infinite alternate;transform-origin:0% 100%}
+  @keyframes pfSwish{from{transform:rotate(-12deg)}to{transform:rotate(14deg)}}
+  .pf-hop{animation:pfHop .7s ease-in-out infinite alternate}
+  @keyframes pfHop{to{transform:translateY(-8px)}}
+  .pf-blob{animation:pfBlob 4s ease-in-out infinite alternate}
+  @keyframes pfBlob{to{transform:translateY(-16px) scale(.85,1.15)}}
 
   /* ---------- captions & splash ---------- */
   .capbox{
@@ -257,6 +288,7 @@
     { k: 'speed', label: 'Pace ×', type: 'num', def: 1, min: 0.3, max: 4, step: 0.1, help: 'Higher = messages land faster. Busy chats are sampled, not queued forever.' },
     { k: 'fs', label: 'Text size (px)', type: 'num', def: 19, min: 11, max: 48, step: 1, help: 'Long messages shrink to fit their panel.' },
     { k: 'captions', label: '"Meanwhile…" captions', type: 'bool', def: true },
+    { k: 'props', label: 'Props in solo panels', type: 'bool', def: true, help: 'Sometimes a chatter gets a prop instead of a second chatter, so it looks like they\'re up to something: a game, pizza, a radio…' },
     { k: 'crown', label: 'Crown for the streamer', type: 'bool', def: true },
     { k: 'maxchars', label: 'Max message length', type: 'num', def: 140, min: 20, max: 500, step: 5 },
     { k: 'badges', label: 'Show badges', type: 'bool', def: true, help: 'Twitch and Kick badges; owner / mod / member / sub / follower badges on YouTube and TikTok.' },
@@ -300,6 +332,7 @@
     speed: S.speed,
     fs: S.fs,
     captions: S.captions,
+    props: S.props,
     crown: S.crown,
     maxChars: S.maxchars,
     ignore: new Set(S.ignore.toLowerCase().split(/[\s,]+/).filter(Boolean)),
@@ -792,10 +825,12 @@
       for (const side of [-1, 1]) {
         let p = pose;
         if ((pose === 'wave' || pose === 'scratch' || pose === 'chin') && side !== spec.hand) p = 'down';
+        if (o.reach && side === o.reach && (pose === 'wave' || pose === 'down')) p = 'reach';   // busy with a prop
         const S = [50 + side * (bd.hw(sy) - 4), sy];
         let H, C;
         switch (p) {
           case 'wave': H = [50 + side * (Bw + 15), T + 24]; C = [50 + side * (Bw + 20), sy - 4]; break;
+          case 'reach': H = [50 + side * (Bw + 17), sy - 3]; C = [50 + side * (Bb + 12), sy + 10]; break;
           case 'up': H = [50 + side * (Bw + 12), T + 6]; C = [50 + side * (Bw + 18), sy - 10]; break;
           case 'fists': H = [50 + side * Bw * .62, sy - 6]; C = [50 + side * (Bw + 16), sy + 8]; break;
           case 'clasp': H = [50 + side * 5, sy + 8]; C = [50 + side * (Bb + 6), sy + 16]; break;
@@ -1105,6 +1140,132 @@
     return `<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="pbg"><defs></defs>${s}</svg>`;
   }
 
+  // ---------------- props ----------------
+  // Sometimes a chatter gets a panel to themselves with a prop instead of a second chatter, so it
+  // looks like they're up to something: gaming, eating pizza, jamming to the radio. A word in the
+  // message picks the prop when one matches; otherwise it's random. Each is drawn in a 100-wide box
+  // (vh tall) standing on the floor, h is its height next to a monster's, and dir props face left
+  // and get flipped to face the monster when they stand on the left.
+  const PO = 'stroke="#111" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"';
+  const table = (vh = 100) => `<g transform="translate(0 ${vh - 100})"><path d="M30 66 L26 99 M70 66 L74 99" fill="none" ${PO}/><rect x="14" y="57" width="72" height="9" rx="4" fill="#c98f5e" ${PO}/></g>`;
+  const steam = (x, y) => [0, 1, 2].map(i => `<path class="pf-steam" style="animation-delay:${-i * .8}s" d="M${x + (i - 1) * 9} ${y} q-4 -6 0 -12 q4 -6 0 -12" fill="none" stroke="#8a8fb0" stroke-width="2.6" stroke-linecap="round"/>`).join('');
+  const notes = (spots) => spots.map(([x, y], i) => `<text class="pf-note" style="animation-delay:${-i * .7}s" x="${x}" y="${y}" font-size="17" font-family="sans-serif" font-weight="700" fill="#111">${i % 2 ? '♫' : '♪'}</text>`).join('');
+  const twinkle = (x, y, r, d = 0) => `<path class="pf-blink" style="animation-delay:${d}s" d="M${x} ${y - r} Q${x} ${y} ${x + r} ${y} Q${x} ${y} ${x} ${y + r} Q${x} ${y} ${x - r} ${y} Q${x} ${y} ${x} ${y - r}Z" fill="#fff" stroke="#111" stroke-width="1.4"/>`;
+  const PROPS = [
+    { id: 'tv', h: .64, kw: /\b(game|gaming|play(ing)?|boss|level|lag+(ing)?|speedrun|controller|gg)\b/i, svg: () =>
+      `<path d="M28 99 L40 84 H60 L72 99Z" fill="#3b3f5c" ${PO}/><path d="M42 22 L30 6 M58 22 L70 6" fill="none" ${PO}/>`
+      + `<rect x="6" y="20" width="88" height="66" rx="9" fill="#2d3047" ${PO}/>`
+      + `<g class="pf-flicker"><rect x="13" y="27" width="74" height="50" rx="4" fill="#8fe3ff"/><rect x="13" y="66" width="74" height="11" fill="#55c46a"/>`
+      + `<rect x="56" y="50" width="16" height="5" fill="#c8823e"/><circle cx="76" cy="36" r="4" fill="#ffd23f"/>`
+      + `<g class="pf-hop"><rect x="30" y="55" width="9" height="11" rx="1" fill="#ff4f6d"/><rect x="32" y="57" width="2.5" height="2.5" fill="#fff"/></g></g>`
+      + `<rect x="13" y="27" width="74" height="50" rx="4" fill="none" ${PO}/>` },
+    { id: 'arcade', h: .84, vh: 150, kw: /\b(arcade|retro|high ?score|pac-?man|tetris|insert coin)\b/i, svg: () =>
+      `<path d="M22 148 V40 L30 12 H70 L78 40 V148Z" fill="#6b4bff" ${PO}/><rect x="28" y="16" width="44" height="13" rx="2" fill="#ffd23f" ${PO}/>`
+      + `<text x="50" y="26.5" text-anchor="middle" font-family="Bangers, sans-serif" font-size="11" fill="#111">GAME</text>`
+      + `<rect x="28" y="38" width="44" height="36" rx="3" fill="#111" ${PO}/><g class="pf-flicker"><rect x="34" y="44" width="6" height="5" fill="#39d36b"/><rect x="47" y="44" width="6" height="5" fill="#39d36b"/><rect x="60" y="44" width="6" height="5" fill="#ff7ad9"/>`
+      + `<rect x="40" y="53" width="6" height="5" fill="#ff7ad9"/><rect x="54" y="53" width="6" height="5" fill="#39d36b"/><rect class="pf-swim" x="46" y="66" width="8" height="4" fill="#ffd23f"/></g>`
+      + `<path d="M18 92 L22 80 H78 L82 92Z" fill="#8b6cff" ${PO}/><path d="M38 84 V74" stroke="#111" stroke-width="3"/><circle cx="38" cy="73" r="4.5" fill="#ff4f6d" ${PO}/>`
+      + `<circle cx="56" cy="86" r="3.5" fill="#ffd23f" ${PO}/><circle cx="66" cy="84" r="3.5" fill="#4fb6ff" ${PO}/>` },
+    { id: 'laptop', h: .7, kw: /\b(code|coding|work(ing)?|bug|deploy|homework|school|email|laptop|computer|pc)\b/i, svg: () =>
+      table() + `<path d="M30 56 L26 24 H74 L70 56Z" fill="#454b70" ${PO}/><path d="M32.5 52 L29.5 28 H70.5 L67.5 52Z" fill="#1e2440"/>`
+      + `<rect x="34" y="32" width="18" height="3" fill="#7ee0a1"/><rect x="38" y="38" width="24" height="3" fill="#ffd23f"/><rect x="38" y="44" width="14" height="3" fill="#ff7ad9"/>`
+      + `<rect class="pf-blink" x="54" y="44" width="5" height="3.5" fill="#fff"/><path d="M20 58 L28 54 H72 L80 58Z" fill="#b9bfd8" ${PO}/>` },
+    { id: 'pizza', h: .68, kw: /\b(pizza|food|hungry|dinner|lunch|snack|eat(ing)?)\b|🍕/i, svg: () =>
+      table() + `<path d="M24 56 L30 22 H70 L76 56Z" fill="#e2b77c" ${PO}/><path d="M33 50 L37 28 H63 L67 50Z" fill="#c9965e" opacity=".45"/>`
+      + `<rect x="16" y="49" width="68" height="9" rx="2" fill="#e2b77c" ${PO}/><ellipse cx="50" cy="49" rx="29" ry="6" fill="#f2c14e" ${PO}/>`
+      + `<g fill="#d9483b"><circle cx="40" cy="48" r="2.6"/><circle cx="54" cy="47" r="2.6"/><circle cx="62" cy="50" r="2.4"/><circle cx="46" cy="51" r="2.2"/></g>` + steam(50, 40) },
+    { id: 'coffee', h: .66, kw: /\b(coffee|tea|caffeine|morning|tired|sleepy|latte|espresso)\b|☕/i, svg: () =>
+      table() + `<path d="M66 32 q16 0 16 12 q0 12 -16 10" fill="none" stroke="#111" stroke-width="8"/><path d="M66 32 q16 0 16 12 q0 12 -16 10" fill="none" stroke="#ff8fb1" stroke-width="3.6"/>`
+      + `<path d="M32 26 H68 L66 55 Q50 59 34 55Z" fill="#ff8fb1" ${PO}/><ellipse cx="50" cy="26" rx="18" ry="4.5" fill="#6b3e26" ${PO}/>`
+      + `<path d="M50 48 C44 43 44 37 48 37 C49.5 37 50 38.5 50 39.5 C50 38.5 50.5 37 52 37 C56 37 56 43 50 48Z" fill="#fff" stroke="#111" stroke-width="1.5"/>` + steam(50, 18) },
+    { id: 'boba', h: .7, kw: /\b(boba|bubble ?tea|milk ?tea|drink|thirsty|hydrate|water)\b|🧋|💧/i, svg: () =>
+      table() + `<path d="M34 26 H66 L62 56 H38Z" fill="#f3d9b1" ${PO}/><g fill="#3b2416"><circle cx="43" cy="51" r="3"/><circle cx="50" cy="52" r="3"/><circle cx="57" cy="51" r="3"/><circle cx="46" cy="46" r="3"/><circle cx="54" cy="46" r="3"/></g>`
+      + `<path d="M32 26 Q50 12 68 26Z" fill="#fff" fill-opacity=".85" ${PO}/><path d="M58 4 L51 30" stroke="#111" stroke-width="7.5" stroke-linecap="round"/><path d="M58 4 L51 30" stroke="#ff7ad9" stroke-width="3.8" stroke-linecap="round"/>` },
+    { id: 'popcorn', h: .7, kw: /\b(popcorn|movie|film|watch(ing)?|drama|tea time|lore)\b|🍿/i, svg: () =>
+      table() + `<g fill="#fff4c9" ${PO}><circle cx="38" cy="26" r="6"/><circle cx="48" cy="21" r="6.5"/><circle cx="58" cy="24" r="6"/><circle cx="64" cy="30" r="5"/><circle cx="34" cy="31" r="5"/></g>`
+      + `<path d="M31 28 H69 L63 57 H37Z" fill="#fff"/><path d="M38 28 H46 L46 57 H41Z M54 28 H62 L60 57 H54Z" fill="#e8192c"/><path d="M31 28 H69 L63 57 H37Z" fill="none" ${PO}/>`
+      + `<circle class="pf-hop" cx="72" cy="16" r="3.5" fill="#fff4c9" ${PO}/>` },
+    { id: 'cake', h: .72, kw: /\b(birthday|bday|cake|anniversary|celebrat\w*|party)\b|🎂|🥳/i, svg: () =>
+      table() + [38, 50, 62].map((x, i) => `<rect x="${x - 2}" y="27" width="4" height="12" fill="#4fb6ff" ${PO}/><path class="pf-flame" style="animation-delay:${-i * .12}s" d="M${x} 25 q-4 -5 0 -11 q4 6 0 11Z" fill="#ffb02e" stroke="#111" stroke-width="1.5"/>`).join('')
+      + `<rect x="26" y="38" width="48" height="20" rx="3" fill="#ff9ec4" ${PO}/><path d="M26 41 H74 V45 q-4 6 -8 0 q-4 6 -8 0 q-4 6 -8 0 q-4 6 -8 0 q-4 6 -8 0 q-4 6 -8 0Z" fill="#fff" stroke="#111" stroke-width="2"/>`
+      + `<path d="M26 41 Q26 38 29 38 H71 Q74 38 74 41" fill="none" ${PO}/>` },
+    { id: 'gift', h: .48, kw: /\b(gift|present|sub(scrib\w*)?|surprise|giveaway)\b|🎁/i, svg: () =>
+      `<g class="pf-shake"><rect x="18" y="50" width="64" height="48" rx="3" fill="#8b6cff" ${PO}/><rect x="12" y="40" width="76" height="14" rx="3" fill="#a48bff" ${PO}/>`
+      + `<rect x="44" y="40" width="12" height="58" fill="#ffd23f" stroke="#111" stroke-width="2"/><path d="M50 40 C38 22 24 32 36 40Z M50 40 C62 22 76 32 64 40Z" fill="#ffd23f" ${PO}/></g>` },
+    { id: 'balloons', h: .85, vh: 150, kw: /\b(yay|woo+|hype|congrat\w*|congrats|letsgo+|lets go+)\b|🎈|🎉/i, svg: () =>
+      `<path d="M50 140 Q44 110 30 74 M50 140 Q52 100 52 54 M50 140 Q58 112 72 70" fill="none" stroke="#111" stroke-width="1.6"/><path d="M42 148 L45 138 H55 L58 148Z" fill="#555" ${PO}/>`
+      + [[30, 52, '#ff4f6d', 0], [52, 32, '#4fb6ff', -.8], [72, 48, '#ffd23f', -1.6]].map(([x, y, c, d]) => `<g class="pf-bob" style="animation-delay:${d}s"><path d="M${x - 3} ${y + 23} l3 -3 l3 3Z" fill="${c}" ${PO}/><ellipse cx="${x}" cy="${y}" rx="18" ry="21" fill="${c}" ${PO}/><ellipse cx="${x - 7}" cy="${y - 8}" rx="4" ry="6" fill="#fff" opacity=".55"/></g>`).join('') },
+    { id: 'boombox', h: .58, kw: /\b(music|song|beat|vibe|vibing|jam|dance|dancing|banger|bop|playlist|radio)\b|🎶|🎵/i, svg: () =>
+      `<path d="M30 52 Q30 38 50 38 Q70 38 70 52" fill="none" stroke="#111" stroke-width="5"/><rect x="6" y="50" width="88" height="48" rx="7" fill="#ff4f6d" ${PO}/>`
+      + `<rect x="38" y="56" width="24" height="10" rx="2" fill="#2d3047" ${PO}/><rect x="44" y="72" width="12" height="4" rx="2" fill="#ffd23f" ${PO}/>`
+      + [[24, 0], [76, -.24]].map(([x, d]) => `<g class="pf-pulse" style="animation-delay:${d}s"><circle cx="${x}" cy="78" r="13" fill="#2d3047" ${PO}/><circle cx="${x}" cy="78" r="5" fill="#8a8fb0"/></g>`).join('')
+      + notes([[14, 40], [78, 34], [46, 26]]) },
+    { id: 'mic', h: .8, vh: 140, kw: /\b(sing|singing|karaoke|mic|stream(ing)?|podcast|talk(ing)?|speech|announce\w*)\b|🎤/i, svg: () =>
+      `<path d="M50 118 L30 138 M50 118 L70 138 M50 118 V138" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>`
+      + `<path d="M50 120 V60 L62 44" fill="none" stroke="#111" stroke-width="7" stroke-linejoin="round"/><path d="M50 120 V60 L62 44" fill="none" stroke="#8a8fb0" stroke-width="3" stroke-linejoin="round"/>`
+      + `<g transform="rotate(32 66 34)"><rect x="59" y="16" width="14" height="30" rx="7" fill="#c9cfe8" ${PO}/><path d="M59 26 H73 M59 32 H73 M59 38 H73" stroke="#111" stroke-width="1.4"/></g>`
+      + `<circle class="pf-blink" cx="50" cy="96" r="3.5" fill="#ff3b3b" ${PO}/>`
+      + `<path class="pf-pulse" d="M82 18 q6 8 0 16 M88 12 q10 14 0 28" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round"/>` },
+    { id: 'plant', h: .74, vh: 140, kw: /\b(plant|grass|touch grass|garden|nature|outside|flower)\b|🌱|🌿/i, svg: () =>
+      `<g class="pf-sway"><path d="M50 104 C30 90 20 70 26 50 C40 60 48 80 50 104Z" fill="#4caf50" ${PO}/><path d="M50 104 C70 88 82 68 76 46 C62 58 52 80 50 104Z" fill="#5cc062" ${PO}/>`
+      + `<path d="M50 104 C44 80 44 50 52 22 C60 50 58 80 50 104Z" fill="#3e9e48" ${PO}/></g>`
+      + `<path d="M30 108 H70 L64 138 H36Z" fill="#d9774b" ${PO}/><rect x="26" y="101" width="48" height="10" rx="3" fill="#e58c5e" ${PO}/>` },
+    { id: 'campfire', h: .54, kw: /\b(fire|cozy|comfy|camp(ing)?|cold|smores?|marshmallows?|hot)\b|🔥/i, svg: () =>
+      `<g class="pf-flame"><path d="M50 26 C68 48 72 66 62 82 H38 C28 66 32 48 50 26Z" fill="#ff8a1f" ${PO}/><path d="M50 48 C59 60 61 70 56 82 H44 C39 70 41 60 50 48Z" fill="#ffd23f"/></g>`
+      + `<rect x="20" y="80" width="60" height="10" rx="5" fill="#8a5a3b" ${PO} transform="rotate(12 50 85)"/><rect x="20" y="80" width="60" height="10" rx="5" fill="#9c6a47" ${PO} transform="rotate(-12 50 85)"/>`
+      + [[14, 95], [26, 97], [74, 97], [86, 95]].map(([x, y]) => `<ellipse cx="${x}" cy="${y}" rx="7" ry="4" fill="#9aa0b8" ${PO}/>`).join('')
+      + `<circle class="pf-note" cx="40" cy="22" r="2" fill="#ffb02e"/><circle class="pf-note" style="animation-delay:-1s" cx="58" cy="18" r="2" fill="#ffb02e"/>` },
+    { id: 'cat', h: .42, dir: true, kw: /\b(cats?|kitty|kitten|meow|pspsps+|pet)\b|🐱|🐈/i, svg: () =>
+      `<g class="pf-swish"><path d="M70 92 C90 90 92 70 84 58" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/><path d="M70 92 C90 90 92 70 84 58" fill="none" stroke="#f2a65a" stroke-width="4.4" stroke-linecap="round"/></g>`
+      + `<ellipse cx="56" cy="80" rx="20" ry="17" fill="#f2a65a" ${PO}/><path d="M24 48 L22 30 L35 40Z M43 40 L54 30 L52 48Z" fill="#f2a65a" ${PO}/>`
+      + `<circle cx="38" cy="54" r="16" fill="#f2a65a" ${PO}/><path d="M26 42 L25 34 L31 39Z M48 39 L52 34 L51 42Z" fill="#ffb3c9"/>`
+      + `<ellipse cx="32" cy="53" rx="2.2" ry="3.2" fill="#111"/><ellipse cx="44" cy="53" rx="2.2" ry="3.2" fill="#111"/><path d="M35 60 l3 2.5 l3 -2.5" fill="none" stroke="#111" stroke-width="1.6" stroke-linecap="round"/>`
+      + `<ellipse cx="46" cy="96" rx="6" ry="3.5" fill="#f2a65a" ${PO}/><ellipse cx="60" cy="96" rx="6" ry="3.5" fill="#f2a65a" ${PO}/>` },
+    { id: 'duck', h: .4, dir: true, kw: /\b(ducks?|quack|bath|rubber ?duck|debug)\b|🦆/i, svg: () =>
+      `<ellipse cx="50" cy="95" rx="42" ry="5" fill="#8fd3ff" ${PO}/><g class="pf-bob"><path d="M20 70 Q20 92 50 92 Q82 92 84 64 Q70 74 60 70 Q60 56 48 56 Q30 56 20 70Z" fill="#ffd23f" ${PO}/>`
+      + `<circle cx="34" cy="46" r="15" fill="#ffd23f" ${PO}/><path d="M20 46 Q8 47 12 54 Q20 55 24 50Z" fill="#ff8a1f" ${PO}/><circle cx="31" cy="42" r="2.6" fill="#111"/>`
+      + `<path d="M52 72 Q62 64 70 72" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"/></g>` },
+    { id: 'fishbowl', h: .7, kw: /\b(fish|fishing|blub|swim(ming)?|ocean|sea)\b|🐟|🐠/i, svg: () =>
+      table() + `<circle cx="50" cy="36" r="21" fill="#bfe9ff" ${PO}/><path d="M31 32 H69" stroke="#8fd3ff" stroke-width="2"/><rect x="40" y="12" width="20" height="5" rx="2" fill="#dff4ff" ${PO}/>`
+      + `<g class="pf-swim"><path d="M44 40 Q50 32 58 40 Q50 48 44 40Z M45 40 L38 35 V45Z" fill="#ff8a1f" stroke="#111" stroke-width="2" stroke-linejoin="round"/><circle cx="54" cy="39" r="1.2" fill="#111"/></g>`
+      + `<circle class="pf-steam" cx="58" cy="30" r="1.8" fill="none" stroke="#111" stroke-width="1"/>` },
+    { id: 'robot', h: .56, kw: /\b(robots?|ai|bots?|beep|boop|chatgpt|claude|machine)\b|🤖/i, svg: () =>
+      `<path d="M50 26 V14" ${PO}/><circle class="pf-blink" cx="50" cy="11" r="4" fill="#ff4f6d" ${PO}/>`
+      + `<path d="M26 66 Q14 70 16 84 M74 66 Q86 70 84 84" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/><path d="M26 66 Q14 70 16 84 M74 66 Q86 70 84 84" fill="none" stroke="#aab3d9" stroke-width="3" stroke-linecap="round"/>`
+      + `<rect x="30" y="86" width="14" height="11" rx="3" fill="#555" ${PO}/><rect x="56" y="86" width="14" height="11" rx="3" fill="#555" ${PO}/>`
+      + `<rect x="26" y="56" width="48" height="33" rx="8" fill="#aab3d9" ${PO}/><rect x="40" y="64" width="20" height="12" rx="3" fill="#2d3047" ${PO}/><rect class="pf-blink" style="animation-delay:-.5s" x="44" y="68" width="5" height="4" fill="#39d36b"/>`
+      + `<rect x="30" y="26" width="40" height="28" rx="8" fill="#c9cfe8" ${PO}/><g class="pf-flicker"><circle cx="42" cy="40" r="5" fill="#4fb6ff" ${PO}/><circle cx="58" cy="40" r="5" fill="#4fb6ff" ${PO}/></g>` },
+    { id: 'trophy', h: .7, vh: 120, kw: /\b(win|won|winner|victory|champ\w*|clutch|ez|first|pog|poggers)\b|🏆/i, svg: () =>
+      `<path d="M28 38 Q12 38 16 54 Q20 64 32 62 M72 38 Q88 38 84 54 Q80 64 68 62" fill="none" stroke="#111" stroke-width="7"/><path d="M28 38 Q12 38 16 54 Q20 64 32 62 M72 38 Q88 38 84 54 Q80 64 68 62" fill="none" stroke="#ffc21a" stroke-width="3"/>`
+      + `<path d="M44 96 H56 L54 78 H46Z" fill="#ffc21a" ${PO}/><path d="M28 30 H72 Q72 76 50 80 Q28 76 28 30Z" fill="#ffd23f" ${PO}/><text x="50" y="62" text-anchor="middle" font-family="Bangers, sans-serif" font-size="22" fill="#c98a00">1</text>`
+      + `<rect x="30" y="96" width="40" height="22" rx="2" fill="#5b3a29" ${PO}/><rect x="38" y="102" width="24" height="7" fill="#ffd23f"/>`
+      + twinkle(18, 24, 6) + twinkle(84, 20, 5, -.5) + twinkle(80, 82, 4, -.25) },
+    { id: 'lavalamp', h: .82, vh: 130, kw: /\b(chill|relax(ing)?|lofi|lo-fi|calm|cozy vibes|groovy|trippy)\b/i, svg: () =>
+      table(130) + `<path d="M40 72 L44 30 Q50 26 56 30 L60 72Z" fill="#ff9ec4" ${PO} transform="translate(0 15)"/>`
+      + `<g transform="translate(0 15)"><ellipse class="pf-blob" cx="50" cy="62" rx="6" ry="5" fill="#ff3b7f"/><ellipse class="pf-blob" style="animation-delay:-2s" cx="49" cy="48" rx="4" ry="4.5" fill="#ff3b7f"/></g>`
+      + `<path d="M44 30 L46 18 H54 L56 30Z" fill="#6b4bff" ${PO} transform="translate(0 15)"/><path d="M36 86 L40 72 H60 L64 86Z" fill="#6b4bff" ${PO} transform="translate(0 1)"/>` },
+    { id: 'ghost', h: .64, kw: /\b(spooky|ghost|boo+|scary|haunted|halloween|creepy)\b|👻/i, svg: () =>
+      `<ellipse cx="50" cy="96" rx="22" ry="3" fill="#000" opacity=".15"/><g class="pf-bob"><path d="M22 84 V44 Q22 14 50 14 Q78 14 78 44 V84 L70 76 L62 84 L54 76 L46 84 L38 76 L30 84Z" fill="#fff" fill-opacity=".92" ${PO}/>`
+      + `<ellipse cx="40" cy="42" rx="4" ry="6" fill="#111"/><ellipse cx="60" cy="42" rx="4" ry="6" fill="#111"/><ellipse cx="50" cy="58" rx="5" ry="6.5" fill="#111"/>`
+      + `<ellipse cx="33" cy="52" rx="5" ry="3" fill="#ff9ec4" opacity=".7"/><ellipse cx="67" cy="52" rx="5" ry="3" fill="#ff9ec4" opacity=".7"/></g>` },
+  ];
+  let lastProp = '';
+  function pickProp(it) {
+    const text = (it.tokens || []).map(t => t.t === 'text' ? t.v : t.code || '').join(' ');
+    const hits = PROPS.filter(x => x.kw.test(text));
+    const pool = (hits.length ? hits : PROPS).filter(x => x.id !== lastProp);
+    const pr = rnd(pool.length ? pool : PROPS);
+    lastProp = pr.id;
+    return pr;
+  }
+  function addProp(p, spec, side) {
+    const el = document.createElement('div'); el.className = 'prop';
+    const vh = spec.vh || 100;
+    el.innerHTML = `<svg viewBox="0 0 100 ${vh}" preserveAspectRatio="xMidYMax meet" xmlns="${NS}"${spec.dir && side === 'L' ? ' style="transform:scaleX(-1)"' : ''}>${spec.svg()}</svg>`;
+    p.pin.appendChild(el);
+    p.prop = { el, side, spec };
+  }
+
   // ---------------- panels ----------------
   // A panel holds up to two characters and two bubbles. New messages join the newest panel when
   // they fit (same people, room left, not too long ago), otherwise a fresh panel slides in and the
@@ -1152,7 +1313,7 @@
     el.append(shadow, pin, frame);
     slot.appendChild(el);
     track.appendChild(slot);
-    const wide = opts.splash ? 1.2 + Math.random() * .12 : keys.length === 2 ? 1.02 + Math.random() * .26 : .74 + Math.random() * .2;
+    const wide = opts.splash ? 1.2 + Math.random() * .12 : keys.length === 2 || opts.prop ? 1.02 + Math.random() * .26 : .74 + Math.random() * .2;
     const p = { slot, el, pin, shadow, frame, chars: [], bubbles: [], last: Date.now(), sealed: !!opts.sealed, off: (Math.random() - .5) * .14,
       w: Math.round(CFG.pw * wide), dl: prev ? prev.dr : pickSlant(), dr: pickSlant(),
       bgStyle: opts.bg || rnd(SCENES), hue: Math.floor(Math.random() * 360), bgSeed: Math.floor(Math.random() * 1e9) };
@@ -1170,6 +1331,9 @@
     if (keys.length === 2) {
       const s0 = sideIn(prev, keys[0]) || (sideIn(prev, keys[1]) ? other(sideIn(prev, keys[1])) : 'L');
       addChar(p, keys[0], s0); addChar(p, keys[1], other(s0));
+    } else if (opts.prop) {
+      const s0 = sideIn(prev, keys[0]) || (Math.random() < .5 ? 'L' : 'R');
+      addChar(p, keys[0], s0); addProp(p, opts.prop, other(s0));
     } else addChar(p, keys[0], 'C');
     panels.push(p);
     strip.classList.remove('empty');
@@ -1231,11 +1395,11 @@
   }
   function drawChar(c, p) {
     const who = chatters.get(c.key);
-    const look = p.chars.length === 2 ? (c.side === 'L' ? 1 : -1) : 0;
-    const sig = c.expr + look;
+    const look = p.chars.length === 2 || p.prop ? (c.side === 'L' ? 1 : -1) : 0;   // face each other, or the prop
+    const reach = p.prop ? look : 0, sig = c.expr + look + '/' + reach;
     if (c.sig === sig) return;
     c.sig = sig;
-    c.art.innerHTML = charSVG(charSpec(who.name), who.pal, { expr: c.expr, look, crown: CFG.crown && who.owner });
+    c.art.innerHTML = charSVG(charSpec(who.name), who.pal, { expr: c.expr, look, reach, crown: CFG.crown && who.owner });
   }
 
   function addBubble(p, it) {
@@ -1248,28 +1412,8 @@
     el.style.setProperty('--dot', who.pal.dot);
     const face = document.createElement('div'); face.className = 'face';
     const txt = document.createElement('div'); txt.className = 'txt';
-    if (words.length && words.every(w => w.t === 'emote')) el.classList.add('emoteonly');
-    const b = { el, face, txt, key: it.who, kind: it.kind || 'speech', msgId: it.msgId, p };
-    words.forEach((w, i) => {
-      const s = document.createElement('span');
-      s.className = 'w' + (w.nm ? ' nm' : '');
-      s.style.setProperty('--i', i);
-      if (w.t === 'emote' || w.t === 'gif') {
-        s.classList.add(w.t === 'gif' ? 'gif' : 'em');
-        if (w.giant) s.classList.add('giant');
-        const img = document.createElement('img');
-        img.src = w.url; img.alt = w.code || '';
-        img.onload = () => relayout(p);               // images change the bubble size once loaded
-        img.onerror = () => { s.textContent = w.code || ''; relayout(p); };
-        s.appendChild(img);
-        (w.over || []).forEach(u => {
-          const z = document.createElement('img'); z.src = u; z.className = 'zw'; z.alt = '';
-          s.appendChild(z);
-        });
-      } else s.textContent = w.v;
-      txt.appendChild(s);
-      txt.appendChild(document.createTextNode(' '));
-    });
+    const b = { el, face, txt, key: it.who, kind: it.kind || 'speech', msgId: it.msgId, msgIds: [it.msgId], p, emoteOnly: true };
+    addWords(b, words);
     face.appendChild(txt);
     if (b.kind !== 'narr') {
       b.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1279,10 +1423,53 @@
     el.appendChild(face);
     p.pin.appendChild(el);
     p.bubbles.push(b);
-    b.words = words.length;
     return b;
   }
   function removeBubble(p, b) { b.el.remove(); p.bubbles.splice(p.bubbles.indexOf(b), 1); }
+
+  // Puts words into a bubble (each pops in on its own); returns the nodes it added.
+  function addWords(b, words) {
+    const added = [];
+    words.forEach((w, i) => {
+      const s = document.createElement('span');
+      s.className = 'w' + (w.nm ? ' nm' : '');
+      s.style.setProperty('--i', i);
+      if (w.t === 'emote' || w.t === 'gif') {
+        s.classList.add(w.t === 'gif' ? 'gif' : 'em');
+        if (w.giant) s.classList.add('giant');
+        const img = document.createElement('img');
+        img.src = w.url; img.alt = w.code || '';
+        img.onload = () => relayout(b.p);             // images change the bubble size once loaded
+        img.onerror = () => { s.textContent = w.code || ''; relayout(b.p); };
+        s.appendChild(img);
+        (w.over || []).forEach(u => {
+          const z = document.createElement('img'); z.src = u; z.className = 'zw'; z.alt = '';
+          s.appendChild(z);
+        });
+      } else s.textContent = w.v;
+      added.push(s, document.createTextNode(' '));
+    });
+    added.forEach(n => b.txt.appendChild(n));
+    b.emoteOnly = b.emoteOnly && words.length > 0 && words.every(w => w.t === 'emote');
+    b.el.classList.toggle('emoteonly', b.emoteOnly);
+    b.words = words.length;   // how long the speaker keeps talking for the newest message
+    return added;
+  }
+  // The same chatter saying another thing of the same kind goes into the bubble they already have,
+  // on a new line, instead of stacking a second bubble whose tail would run behind the first.
+  // Returns an undo, for when the panel turns out to be too full.
+  function mergeBubble(b, it) {
+    const was = { words: b.words, emoteOnly: b.emoteOnly, ids: b.msgIds.length };
+    const br = document.createElement('br');
+    b.txt.appendChild(br);
+    const added = [br, ...addWords(b, toWords(it.tokens))];
+    b.msgIds.push(it.msgId);
+    return () => {
+      added.forEach(n => n.remove());
+      b.words = was.words; b.emoteOnly = was.emoteOnly; b.msgIds.length = was.ids;
+      b.el.classList.toggle('emoteonly', b.emoteOnly);
+    };
+  }
 
   // Shrink the text box to its widest line: browsers otherwise keep the full max width after
   // wrapping, leaving a blank strip on the right of the bubble.
@@ -1296,7 +1483,7 @@
   // Lays out characters and bubbles; returns the text size it had to use.
   function layoutPanel(p) {
     const H = CFG.ph - 4; // inside the frame
-    const n = p.chars.length;
+    const n = p.chars.length + (p.prop ? 1 : 0);   // a prop takes the second chatter's spot
     const ch = H * .6, cw = ch * 112 / 148;
     p.el.style.setProperty('--ch', ch + 'px');
     p.el.style.setProperty('--cw', cw + 'px');
@@ -1306,6 +1493,12 @@
       c.el.style.left = (c.x - cw / 2) + 'px';
       c.headTop = H + ch * .03 - ch + ch * (33 / 148);
       drawChar(c, p);
+    }
+    if (p.prop) {
+      const pr = p.prop, vh = pr.spec.vh || 100, h = ch * pr.spec.h, w = h * 100 / vh;
+      // on its side of the panel, but kept inside the slanted frame at floor level
+      const x = clamp(Lb + span * (pr.side === 'L' ? .27 : .73), Math.max(p.L(H), p.L(H - h)) + w / 2 + 2, Math.min(p.R(H), p.R(H - h)) - w / 2 - 2);
+      Object.assign(pr.el.style, { left: (x - w / 2) + 'px', width: w + 'px', height: h + 'px' });
     }
     // Name tags get the whole width under their character (their half of the panel when there are
     // two), centred on the character but nudged in so long names stay inside the frame.
@@ -1349,6 +1542,7 @@
       if (total <= area || fs <= 11) break;
     }
     let y = top + Math.max(0, area - total) * .45;
+    const box = new Map();
     for (const b of list) {
       const w = b.face.offsetWidth, h = b.face.offsetHeight;
       const c = p.chars.find(x => x.key === b.key) || p.chars[0];
@@ -1362,12 +1556,19 @@
       x = Math.max(lo - pad + 2, Math.min(x, hi - w));
       b.el.style.left = x + 'px';
       b.el.style.top = y + 'px';
-      if (b.svg) {
-        const tx = c.x + (x + w / 2 < c.x ? -7 : 7) - x;
-        drawShape(b, w, h, { x: tx, y: c.headTop - 5 - y });
-      }
+      box.set(b, { x, y, w, h, c });
       y += h + 12 + (b.kind === 'shout' ? 9 : 0);
     }
+    // Tails point at the speaker's head. When the bubble right below is the same speaker's (say a
+    // shout after a line of talk), the upper one links to it with a short tail tucked under it
+    // instead, so no tail runs down behind another bubble.
+    list.forEach((b, i) => {
+      if (!b.svg) return;
+      const { x, y, w, h, c } = box.get(b), next = list[i + 1], nb = next && next.key === b.key && next.kind !== 'narr' && box.get(next);
+      const tip = nb ? { x: clamp(nb.x + nb.w / 2, nb.x + 18, nb.x + nb.w - 18) - x, y: nb.y + 14 - y }
+        : { x: c.x + (x + w / 2 < c.x ? -7 : 7) - x, y: c.headTop - 5 - y };
+      drawShape(b, w, h, tip);
+    });
     return fs;
   }
   const relayout = (p) => { if (!p.dead && p.el.isConnected) layoutPanel(p); };
@@ -1396,17 +1597,51 @@
       <g transform="translate(6 6)" fill="url(#${id}s)" stroke="#111" stroke-width="3" stroke-linejoin="round"><path d="${d}"/>${extra}</g>
       <g fill="url(#${id}f)" stroke="#111" stroke-width="3.5" stroke-linejoin="round"><path d="${d}"/>${extra}</g>`;
   }
+  // A tail is a wedge built around one centre curve: it leaves the bubble straight down, then bends
+  // toward the tip, and its two sides are offset either side of that curve and taper to nothing, so
+  // they can never cross however far off to the side the speaker is. Its base shrinks to fit small
+  // bubbles. Returns the base's x, half-width, and the outline from the right of the base, round the
+  // tip, back to the left of the base.
+  function tailWedge(W, H, tip, inset, half) {
+    const hb = clamp((W - 2 * inset) / 2 - 1, 3, half);
+    const bx = clamp(tip.x * .65 + W / 2 * .35, Math.min(W / 2, inset + hb), Math.max(W / 2, W - inset - hb));
+    // the further sideways the speaker is compared with how far down, the straighter the curve, so
+    // the bend never gets tighter than the tail is wide
+    const dx = tip.x - bx, dy = tip.y - H, q = clamp((Math.abs(dx) / dy - .8) / 2.5, 0, .5);
+    const cx = bx + dx * q, cy = H + dy * .55;
+    const pt = (t) => [(1 - t) * (1 - t) * bx + 2 * t * (1 - t) * cx + t * t * tip.x, (1 - t) * (1 - t) * H + 2 * t * (1 - t) * cy + t * t * tip.y];
+    const tan = (t) => { const ex = 2 * (1 - t) * (cx - bx) + 2 * t * (tip.x - cx), ey = 2 * (1 - t) * (cy - H) + 2 * t * (tip.y - cy), l = Math.hypot(ex, ey) || 1; return [ex / l, ey / l]; };
+    const N = 14, right = [], left = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N, [px, py] = pt(t), [tx, ty] = tan(t), wd = hb * (1 - t) ** 1.4;
+      right.push([px + ty * wd, py - tx * wd]); left.push([px - ty * wd, py + tx * wd]);
+    }
+    right[0] = [bx + hb, H]; left[0] = [bx - hb, H];
+    const pts = [...right, ...left.reverse().slice(1)];
+    // and if an extreme angle would still fold the outline over itself, a straight wedge never can
+    return { bx, hb, pts: crosses(pts) ? [[bx + hb, H], [tip.x, tip.y], [bx - hb, H]] : pts };
+  }
+  function crosses(pts) {
+    const o = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+    for (let i = 0; i < pts.length - 1; i++) for (let j = i + 2; j < pts.length - 1; j++) {
+      const [a, b, c, d] = [pts[i], pts[i + 1], pts[j], pts[j + 1]];
+      if (o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0) return true;
+    }
+    return false;
+  }
   function speechPath(W, H, tip) {
-    const r = Math.min(16, H / 2);
+    let r = Math.min(16, H / 2);
+    const P = (q) => q[0].toFixed(1) + ' ' + q[1].toFixed(1);
     if (!tip) return `M${r} 0 H${W - r} A${r} ${r} 0 0 1 ${W} ${r} V${H - r} A${r} ${r} 0 0 1 ${W - r} ${H} H${r} A${r} ${r} 0 0 1 0 ${H - r} V${r} A${r} ${r} 0 0 1 ${r} 0Z`;
-    const bx = clamp(tip.x * .6 + W / 2 * .4, r + 12, W - r - 12), xl = bx - 11, xr = bx + 11;
+    r = Math.min(r, Math.max(6, W / 2 - 7));              // narrow bubbles: tighter corners leave room for the tail
+    const { pts } = tailWedge(W, H, tip, r, 11);
     return `M${r} 0 H${W - r} A${r} ${r} 0 0 1 ${W} ${r} V${H - r} A${r} ${r} 0 0 1 ${W - r} ${H}`
-      + ` H${xr} Q${xr + (tip.x - xr) * .25} ${H + (tip.y - H) * .6} ${tip.x} ${tip.y} Q${xl + (tip.x - xl) * .5} ${H + (tip.y - H) * .35} ${xl} ${H}`
-      + ` H${r} A${r} ${r} 0 0 1 0 ${H - r} V${r} A${r} ${r} 0 0 1 ${r} 0Z`;
+      + ' L' + pts.map(P).join(' L')
+      + ` L${r} ${H} A${r} ${r} 0 0 1 0 ${H - r} V${r} A${r} ${r} 0 0 1 ${r} 0Z`;
   }
   function shoutPath(W, H, tip) {
     const pts = [], sp = 9, step = 17;
-    const bx = tip ? clamp(tip.x * .6 + W / 2 * .4, 20, W - 20) : 0, xl = bx - 12, xr = bx + 12;
+    const tw = tip && tailWedge(W, H, tip, 8, 12), xl = tw ? tw.bx - tw.hb : 0, xr = tw ? tw.bx + tw.hb : 0;
     const edge = (x0, y0, x1, y1, nx, ny, bottom) => {
       const k = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / step));
       let tailed = false;
@@ -1415,14 +1650,14 @@
         if (bottom && tip && x <= xr && x >= xl) {
           if (!tailed) {
             tailed = true;
-            pts.push([xr, H], [(xr + tip.x) / 2 + 6, (H + tip.y) / 2], [tip.x, tip.y], [(xl + tip.x) / 2 - 3, (H + tip.y) / 2 + 5], [xl, H]);
+            pts.push(...tw.pts);
           }
           continue;
         }
         const o = i % 2 === 0 ? sp : 0;
         pts.push([x + nx * o, y + ny * o]);
       }
-      if (bottom && tip && !tailed) pts.push([xr, H], [tip.x, tip.y], [xl, H]);
+      if (bottom && tip && !tailed) pts.push(...tw.pts);
     };
     edge(0, 0, W, 0, 0, -1);
     edge(W, 0, W, H, 1, 0);
@@ -1442,7 +1677,7 @@
     return scallop(pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)), 13) + 'Z';
   }
   function thoughtTrail(W, H, tip) {
-    const sx = clamp(tip.x, 24, W - 24), sy = H + 4;
+    const sx = clamp(tip.x, Math.min(W / 2, 24), Math.max(W / 2, W - 24)), sy = H + 4;
     return [[.3, 6.5], [.62, 4.6], [.88, 3]].map(([t, r]) =>
       `<circle cx="${(sx + (tip.x - sx) * t).toFixed(1)}" cy="${(sy + (tip.y - sy) * t).toFixed(1)}" r="${r}"/>`).join('');
   }
@@ -1455,8 +1690,19 @@
     if (!chatters.has(it.who)) return;
     const cur = panels.filter(x => !x.dead).pop();
 
+    // still talking: add it to their last bubble when it's the same kind (and still fits)
+    const kind = it.kind || 'speech', mine = cur && cur.bubbles[cur.bubbles.length - 1];
+    if (cur && !cur.sealed && now - cur.last < 14000 && mine && mine.key === it.who && mine.kind === kind && kind !== 'narr') {
+      const undo = mergeBubble(mine, it);
+      setMood(cur, it);
+      if (layoutPanel(cur) >= MINFS()) return landed(cur, it);
+      undo();
+      cur.sealed = true;
+      layoutPanel(cur);
+    }
+
     // join the current panel when it fits (only people who are talking are ever in a panel)
-    if (cur && !cur.sealed && cur.bubbles.length < 2 && now - cur.last < 14000) {
+    if (cur && !cur.sealed && cur.bubbles.length < 2 && now - cur.last < 14000 && !(cur.prop && cur.chars[0].key !== it.who)) {
       const keys = new Set(cur.chars.map(c => c.key)); keys.add(it.who);
       if (keys.size <= 2) {
         const added = [];
@@ -1478,6 +1724,7 @@
     const p = newPanel([it.who], {
       caption: captionFor(now, it),
       bg: it.kind === 'narr' ? null : MOOD_BG[moodOf(it.tokens, it.kind)],
+      prop: CFG.props && Math.random() < .45 ? pickProp(it) : null,
     });
     addBubble(p, it);
     setMood(p, it);
@@ -1900,7 +2147,7 @@
           return;
         }
         const cm = /^@(\S+) :tmi\.twitch\.tv CLEARMSG /.exec(line);
-        if (cm) { const id = parseTags(cm[1])['target-msg-id']; if (id) redact(b => b.msgId === id); return; }
+        if (cm) { const id = parseTags(cm[1])['target-msg-id']; if (id) redact(b => b.msgId === id || (b.msgIds || []).includes(id)); return; }
         const cc = /CLEARCHAT #\S+(?: :(\S+))?$/.exec(line);
         if (cc) {
           if (cc[1]) { const k = 'twitch:' + cc[1].toLowerCase(); redact(b => (b.key || b.who) === k); }
@@ -2038,7 +2285,7 @@
           replyTo: rep && rep.username ? { name: rep.username, login: rep.slug || rep.username } : null,
         });
       } else if (o.event === 'App\\Events\\MessageDeletedEvent') {
-        const id = d.message && d.message.id; if (id) redact(b => b.msgId === id);
+        const id = d.message && d.message.id; if (id) redact(b => b.msgId === id || (b.msgIds || []).includes(id));
       } else if (o.event === 'App\\Events\\UserBannedEvent') {
         const u = d.user && (d.user.slug || d.user.username);
         if (u) { const k = 'kick:' + u.toLowerCase(); redact(b => (b.key || b.who) === k); }
