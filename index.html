@@ -8,7 +8,7 @@
   CHAT COMICS — OBS Browser Source overlay
   ------------------------------------------------------------
   Chat becomes a live comic strip. Every chatter gets their own fuzzy little monster (the same one every
-  time), messages land in speech bubbles, replies and @mentions put both monsters in the same panel, and
+  time), messages land in speech bubbles, only the monsters who are talking are in each panel, and
   new panels slide in as the conversation goes on.
 
   Add as a Browser Source (e.g. 1920x1080), transparent background is automatic.
@@ -21,7 +21,7 @@
   Every setting can also be given as a URL parameter, which overrides the saved value — handy for
   running two copies with different setups. The panel's "Copy setup link" builds that link for you.
     channel, kick, tiktok (1 = TikFinity), youtube, ytkey, ytpoll, demo, panels, pw, ph, gap, align,
-    vpos, mx, my, title, idle, speed, fs, listeners, crown, captions, maxchars, badges, pronouns,
+    vpos, mx, my, title, idle, speed, fs, crown, captions, maxchars, badges, pronouns,
     extemotes, events, cmds, firsttime, botlist, ignore        (booleans take 1/0)
 
   Custom integrations (Streamer.bot, etc.) can also call:
@@ -78,7 +78,7 @@
   @keyframes panelDrop{0%{transform:none}25%{transform:translateY(-6%) rotate(-3deg)}100%{transform:translateY(var(--drop)) rotate(12deg);opacity:0}}
 
   /* ---------- characters ---------- */
-  .char{position:absolute;bottom:calc(var(--ch) * -.06);width:var(--cw);height:var(--ch);z-index:2;
+  .char{position:absolute;bottom:calc(var(--ch) * -.03);width:var(--cw);height:var(--ch);z-index:2;
     transition:left .45s cubic-bezier(.3,1.3,.5,1)}
   .char .art{width:100%;height:100%;animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both}
   .char svg{width:100%;height:100%;display:block;overflow:visible}
@@ -98,8 +98,8 @@
   @keyframes hype{from{transform:none}to{transform:translateY(-7%) rotate(3deg)}}
 
   .tag{
-    position:absolute;left:50%;bottom:13%;transform:translateX(-50%) rotate(-3deg);z-index:3;
-    font:15px/1 'Bangers',sans-serif;letter-spacing:1px;white-space:nowrap;max-width:calc(var(--pw) / 2 - 4px);
+    position:absolute;left:0;bottom:4%;transform:rotate(-3deg);z-index:3;
+    font:15px/1 'Bangers',sans-serif;letter-spacing:.6px;white-space:nowrap;
     padding:3px 9px 2px 7px;border:3px solid var(--ink);background:var(--c);color:#fff;
     text-shadow:1.5px 1.5px 0 var(--ink),-1px -1px 0 var(--ink),1px -1px 0 var(--ink),-1px 1px 0 var(--ink);
     display:flex;align-items:center;gap:4px;box-sizing:border-box;
@@ -256,7 +256,6 @@
     { sec: 'Story' },
     { k: 'speed', label: 'Pace ×', type: 'num', def: 1, min: 0.3, max: 4, step: 0.1, help: 'Higher = messages land faster. Busy chats are sampled, not queued forever.' },
     { k: 'fs', label: 'Text size (px)', type: 'num', def: 19, min: 11, max: 48, step: 1, help: 'Long messages shrink to fit their panel.' },
-    { k: 'listeners', label: 'Bring in a listener', type: 'bool', def: true, help: 'Someone who just spoke shows up next to the new speaker, so panels look like conversations.' },
     { k: 'captions', label: '"Meanwhile…" captions', type: 'bool', def: true },
     { k: 'crown', label: 'Crown for the streamer', type: 'bool', def: true },
     { k: 'maxchars', label: 'Max message length', type: 'num', def: 140, min: 20, max: 500, step: 5 },
@@ -300,7 +299,6 @@
     idle: S.idle * 1000,
     speed: S.speed,
     fs: S.fs,
-    listeners: S.listeners,
     captions: S.captions,
     crown: S.crown,
     maxChars: S.maxchars,
@@ -394,12 +392,20 @@
   // the mood of what they said.
   const INK = '#111';
   const IRIS = ['#3fa9ff', '#ff5fa8', '#8b6cff', '#35c46a', '#ffb02e', '#ff6a3c', '#2bd4c9', '#6b4bff'];
-  // Body shapes are described by their half-width at each height (hw), so any profile works:
-  // domes, boxes, bells, or a separate head on top of a body. T is the top of the head, and
-  // face (when given) is the half-width the face is laid out on.
-  const dome = (W, T, n, flare) => ({ W, T, hw: (y) => y < 72
+  // Chibi build: a big head on a small body. Head shapes are described by their half-width at each
+  // height (hw), so any profile works: domes, boxes, bells. T is the top of the head and B its
+  // chin; the body is a smaller bean tucked under the chin, flaring out a bit for bell-ish heads.
+  const CHIN = 100, NECK = 86;
+  const dome = (W, T, n, flare) => ({ W, T, B: CHIN, flare, hw: (y) => y < 72
     ? W * Math.max(0, 1 - Math.min(1, (72 - y) / (72 - T)) ** n) ** (1 / n)
-    : W + flare * (y - 72) / 60 });
+    : W * Math.max(0, 1 - Math.min(1, (y - 72) / (CHIN - 72)) ** Math.max(n, 2.2)) ** (1 / Math.max(n, 2.2)) });
+  const FEET = 130;
+  function bodyOf(b) {
+    const bw = clamp(b.W * .64, 22, 29), r = 11, wide = (y) => bw + b.flare * .3 * (y - NECK - r) / 40;
+    return { W: bw, T: NECK, B: FEET, hw: (y) => y < NECK + r
+      ? bw * Math.sqrt(Math.max(0, 1 - ((NECK + r - y) / r) ** 2))
+      : y < FEET - r ? wide(y) : wide(FEET - r) * Math.sqrt(Math.max(0, 1 - ((y - FEET + r) / r) ** 2)) };
+  }
   const BODIES = {
     round:   dome(42, 22, 2.2, 6),
     tall:    dome(37, 16, 2.1, 7),
@@ -408,24 +414,17 @@
     boxy:    dome(41, 23, 5, 2),
     bell:    dome(31, 18, 2.0, 30),
     gumdrop: dome(44, 20, 1.6, 10),
-    peanut: { W: 40, T: 18, face: 27, hw: (y) => {
-      const hy = 18 + 25, hr = 25.5;
-      const head = Math.abs(y - hy) < hr ? Math.sqrt(hr * hr - (y - hy) ** 2) * 1.08 : 0;
-      const y0 = 64, y1 = 92;
-      const bod = y < y0 ? 0 : y < y1 ? 40 * Math.sqrt(1 - ((y1 - y) / (y1 - y0)) ** 2) : 40 + 8 * (y - y1) / 40;
-      return Math.max(head, bod);
-    } },
   };
 
   // points listed clockwise on screen; each hop is an arc that bulges outward
   const scallop = (pts, r) => `M${pts[0]} ` + pts.slice(1).map(p => `A${r} ${r} 0 0 1 ${p}`).join(' ');
   const f1 = (v) => +v.toFixed(1);
 
-  // The body outline, walked clockwise from the bottom left, over the top, down to the bottom right.
+  // An outline, walked clockwise from the bottom left, over the top, down to the bottom right.
   function outline(b) {
     const raw = [];
-    for (let i = 0; i <= 90; i++) { const u = i / 90, y = b.T + (132 - b.T) * u * u; raw.unshift([50 - b.hw(y), y]); }
-    for (let i = 1; i <= 90; i++) { const u = i / 90, y = b.T + (132 - b.T) * u * u; raw.push([50 + b.hw(y), y]); }
+    for (let i = 0; i <= 90; i++) { const u = i / 90, y = b.T + (b.B - b.T) * u * u; raw.unshift([50 - b.hw(y), y]); }
+    for (let i = 1; i <= 90; i++) { const u = i / 90, y = b.T + (b.B - b.T) * u * u; raw.push([50 + b.hw(y), y]); }
     return raw.filter((p, i) => i === 0 || Math.hypot(p[0] - raw[i - 1][0], p[1] - raw[i - 1][1]) > .05);
   }
   // re-sample a polyline so points are `step` apart
@@ -443,9 +442,10 @@
     return pts;
   }
   // Fur from smooth felt to shaggy. Outward is to the left of the direction of travel.
-  function furPath(b, fur, R) {
+  // A closed shape (the head) ends at its chin; an open one (the body) runs off the bottom.
+  function furPath(b, fur, R, closed) {
     const raw = outline(b), first = raw[0], last = raw[raw.length - 1];
-    const tail = ` L${f1(last[0])} 140 L${f1(first[0])} 140Z`;
+    const tail = closed ? 'Z' : ` L${f1(last[0])} 140 L${f1(first[0])} 140Z`;
     const P = (p) => f1(p[0]) + ' ' + f1(p[1]);
     if (fur === 'smooth') return 'M' + resample(raw, 2.5).map(P).join(' L') + tail;
     if (fur === 'short') return scallop(resample(raw, 3.3).map(P), 2.1) + tail;
@@ -477,7 +477,7 @@
     if (s) return s;
     const R = rng(hash('monster:' + key));
     s = {
-      body: pick(R, ['round', 'round', 'tall', 'wide', 'pear', 'boxy', 'bell', 'gumdrop', 'peanut', 'peanut']),
+      body: pick(R, ['round', 'round', 'tall', 'wide', 'pear', 'boxy', 'bell', 'gumdrop', 'round', 'tall']),
       eyes: pick(R, [2, 2, 2, 2, 1, 3]),
       iris: pick(R, IRIS),
       sleepy: R() < .22,
@@ -500,7 +500,9 @@
     s.stalks = s.eyes === 2 && R() < .2;
     if (s.acc === 'glasses' && (s.eyes !== 2 || s.stalks)) s.acc = 'bow';
     if (s.acc === 'partyhat' && (s.top === 'unihorn' || s.top === 'bunny' || s.top === 'antennae')) s.acc = 'flower';
-    s.path = furPath(BODIES[s.body], s.fur, rng(s.seed));
+    const fr = rng(s.seed);
+    s.headPath = furPath(BODIES[s.body], s.fur, fr, true);
+    s.bodyPath = furPath(bodyOf(BODIES[s.body]), s.fur, fr, true);
     specCache.set(key, s);
     if (specCache.size > 3000) specCache.delete(specCache.keys().next().value);
     return s;
@@ -510,11 +512,17 @@
   function charSVG(spec, pal, o) {
     const id = 'cs' + (++svgUid);
     const expr = o.expr || 'talk', look = o.look || 0;
-    const b = BODIES[spec.body], T = b.T, W = b.face || b.W, Bw = b.W;  // W: face width, Bw: body width
+    const b = BODIES[spec.body], T = b.T, W = b.W, Bw = b.W;  // W: face width, Bw: how far out hands reach
+    const bd = bodyOf(b), Bb = bd.W;                            // Bb: body width
     const fur = pal.main, furD = pal.dark, furL = pal.light, acc = pal.acc, accD = pal.accD;
     const st = `stroke="${INK}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"`;
     const dark = '#4a1020', tongue = '#ff7b98';
     let back = '', front = '';
+    // Fur parts are drawn like the rave characters: every piece as one black silhouette first, then
+    // all of them filled in fur on top, so ears, head, body and feet share a single outline with no
+    // seams where they join. sil holds those pieces; each takes the attributes for the layer.
+    const sil = [];
+    let earIn = '';
 
     // ---- things behind the body (their bases get covered by the fur) ----
     switch (spec.top) {
@@ -531,15 +539,18 @@
           + `<circle cx="30.6" cy="${T - 19.5}" r="1.4" fill="#fff"/><circle cx="66.6" cy="${T - 19.5}" r="1.4" fill="#fff"/>`;
         break;
       case 'bunny':
-        back += `<g transform="rotate(-14 ${50 - W * .45} ${T + 8})"><ellipse cx="${50 - W * .45}" cy="${T - 12}" rx="8" ry="20" fill="${fur}" ${st}/><ellipse cx="${50 - W * .45}" cy="${T - 11}" rx="4" ry="14" fill="#ffb3c9"/></g>`
-          + `<g transform="rotate(14 ${50 + W * .45} ${T + 8})"><ellipse cx="${50 + W * .45}" cy="${T - 12}" rx="8" ry="20" fill="${fur}" ${st}/><ellipse cx="${50 + W * .45}" cy="${T - 11}" rx="4" ry="14" fill="#ffb3c9"/></g>`;
+        for (const k of [-1, 1]) {
+          const ex = 50 + k * W * .45, rot = `transform="rotate(${k * 14} ${ex} ${T + 8})"`;
+          sil.push((a) => `<ellipse cx="${ex}" cy="${T - 12}" rx="8" ry="20" ${rot} ${a}/>`);
+          earIn += `<ellipse cx="${ex}" cy="${T - 11}" rx="4" ry="14" ${rot} fill="#ffb3c9"/>`;
+        }
         break;
       case 'cat':
-        back += `<path d="M${50 - W * .85} ${T + 16} L${50 - W * .78} ${T - 12} L${50 - W * .2} ${T + 4}Z M${50 + W * .85} ${T + 16} L${50 + W * .78} ${T - 12} L${50 + W * .2} ${T + 4}Z" fill="${fur}" ${st}/>`
-          + `<path d="M${50 - W * .74} ${T + 10} L${50 - W * .7} ${T - 4} L${50 - W * .38} ${T + 6}Z M${50 + W * .74} ${T + 10} L${50 + W * .7} ${T - 4} L${50 + W * .38} ${T + 6}Z" fill="#ffb3c9"/>`;
+        sil.push((a) => `<path d="M${50 - W * .85} ${T + 16} L${50 - W * .78} ${T - 12} L${50 - W * .2} ${T + 4}Z M${50 + W * .85} ${T + 16} L${50 + W * .78} ${T - 12} L${50 + W * .2} ${T + 4}Z" ${a}/>`);
+        earIn = `<path d="M${50 - W * .74} ${T + 10} L${50 - W * .7} ${T - 4} L${50 - W * .38} ${T + 6}Z M${50 + W * .74} ${T + 10} L${50 + W * .7} ${T - 4} L${50 + W * .38} ${T + 6}Z" fill="#ffb3c9"/>`;
         break;
       case 'tuft':
-        back += `<path d="M38 ${T + 8} Q38 ${T - 8} 44 ${T - 14} Q44 ${T - 4} 48 ${T - 2} Q48 ${T - 16} 55 ${T - 20} Q53 ${T - 8} 56 ${T - 2} Q60 ${T - 10} 66 ${T - 10} Q60 ${T} 62 ${T + 8}Z" fill="${fur}" ${st}/>`;
+        sil.push((a) => `<path d="M38 ${T + 8} Q38 ${T - 8} 44 ${T - 14} Q44 ${T - 4} 48 ${T - 2} Q48 ${T - 16} 55 ${T - 20} Q53 ${T - 8} 56 ${T - 2} Q60 ${T - 10} 66 ${T - 10} Q60 ${T} 62 ${T + 8}Z" ${a}/>`);
         break;
       case 'floppy':
         back += `<ellipse cx="${50 - W - 3}" cy="${T + 30}" rx="9" ry="19" transform="rotate(22 ${50 - W - 3} ${T + 30})" fill="${furD}" ${st}/>`
@@ -694,60 +705,76 @@
 
     // ---- assemble ----
     const R = rng(spec.seed);
-    let body = `<path d="${spec.path}" fill="${fur}" ${st}/>`;
+    const ears = sil.slice();
+    const feet = [-1, 1].map(k => (a) => `<ellipse cx="${f1(50 + k * Bb * .5)}" cy="${FEET - 1}" rx="9" ry="5.5" ${a}/>`);
+    const bodyP = (a) => `<path d="${spec.bodyPath}" ${a}/>`, headP = (a) => `<path d="${spec.headPath}" ${a}/>`;
+    sil.push(...feet, bodyP, headP);
+    const inkA = `fill="${INK}" stroke="${INK}" stroke-width="5.2" stroke-linejoin="round"`;
+    const furA = `fill="${fur}" stroke="${fur}" stroke-width=".8" stroke-linejoin="round"`;
+    const silInk = sil.map(f => f(inkA)).join('');
+    // the head is filled last so it sits over the top of a shirt
+    let body = ears.map(f => f(furA)).join('') + earIn + feet.map(f => f(furA)).join('')
+      + `<clipPath id="${id}bd"><path d="${spec.bodyPath}"/></clipPath>` + bodyP(furA);
+    let head = headP(furA);
     const shirted = spec.shirt && spec.shirt !== 'bowtie' && spec.shirt !== 'scarf';
-    if (spec.belly && !shirted) body += `<ellipse cx="50" cy="${f1(T + 96)}" rx="${f1(Bw * .62)}" ry="30" fill="${furL}" opacity=".85"/>`;
+    // a shirt is a separate thing, so the chin keeps its line where it overlaps one
+    if (shirted) head += `<path d="${spec.headPath}" fill="none" stroke="${INK}" stroke-width="2.6" clip-path="url(#${id}bd)"/>`;
+    if (spec.belly && !shirted) body += `<ellipse cx="50" cy="${CHIN + 16}" rx="${f1(Bb * .62)}" ry="13" fill="${furL}" opacity=".85"/>`;
     if (spec.spots) for (let i = 0; i < 3; i++) {
-      const sy = T + 50 + R() * 40, sx = 50 + (i % 2 ? 1 : -1) * b.hw(sy) * (.55 + R() * .25);
-      body += `<ellipse cx="${f1(sx)}" cy="${f1(sy)}" rx="${f1(3.5 + R() * 3)}" ry="${f1(3 + R() * 2.5)}" fill="${furD}" opacity=".55"/>`;
+      // two up on the head, one on the tummy
+      const up = i < 2, sy = up ? T + 6 + R() * 6 : CHIN + 8 + R() * 10;
+      const sx = 50 + (i % 2 ? 1 : -1) * (up ? b.hw(sy) : bd.hw(sy)) * (.45 + R() * .25);
+      const spot = `<ellipse cx="${f1(sx)}" cy="${f1(sy)}" rx="${f1(3.5 + R() * 3)}" ry="${f1(3 + R() * 2.5)}" fill="${furD}" opacity=".55"/>`;
+      if (up) head += spot; else body += spot;
     }
     // a few fur flicks
-    if (spec.fur !== 'smooth') for (let i = 0; i < 5; i++) {
-      const fy = T + 46 + R() * 50, fx = 50 + (R() - .5) * b.hw(fy) * 1.5;
+    if (spec.fur !== 'smooth') for (let i = 0; i < 4; i++) {
+      const fy = CHIN + 4 + R() * 18, fx = 50 + (R() - .5) * bd.hw(fy) * 1.4;
       body += `<path d="M${f1(fx - 3)} ${f1(fy)} q2 -4 3 0 q1 -4 3 0" fill="none" stroke="${furD}" stroke-width="1.7" stroke-linecap="round" opacity=".55"/>`;
     }
     // ---- clothes ----
-    const shirtTop = Math.max(my + 19, T + 52), sc = spec.shirtC, scD = shade(sc, -.28);
+    const shirtTop = NECK + 6, sc = spec.shirtC, scD = shade(sc, -.28);
+    let neckwear = '';
     const crew = (xl, xr, y) => `Q50 ${f1(y + 9)} ${f1(xr)} ${f1(y)}`;
     const vee = (xl, xr, y) => `L50 ${f1(y + 15)} L${f1(xr)} ${f1(y)}`;
     const flat = (xl, xr, y) => `L${f1(xr)} ${f1(y)}`;
     let shirt = '';
     switch (spec.shirt) {
-      case 'tee': shirt = `<path d="${shirtPath(b, shirtTop, crew)}" fill="${sc}" ${st}/>`; break;
-      case 'vneck': shirt = `<path d="${shirtPath(b, shirtTop, vee)}" fill="${sc}" ${st}/>`; break;
+      case 'tee': shirt = `<path d="${shirtPath(bd, shirtTop, crew)}" fill="${sc}" ${st}/>`; break;
+      case 'vneck': shirt = `<path d="${shirtPath(bd, shirtTop, vee)}" fill="${sc}" ${st}/>`; break;
       case 'hoodie':
-        shirt = `<path d="${shirtPath(b, shirtTop, crew)}" fill="${sc}" ${st}/>`
-          + `<path d="M45 ${f1(shirtTop + 7)} L44 ${f1(shirtTop + 24)} M55 ${f1(shirtTop + 7)} L56 ${f1(shirtTop + 24)}" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"/>`
-          + `<circle cx="44" cy="${f1(shirtTop + 25)}" r="1.8" fill="#fff" stroke="${INK}" stroke-width="1.3"/><circle cx="56" cy="${f1(shirtTop + 25)}" r="1.8" fill="#fff" stroke="${INK}" stroke-width="1.3"/>`
-          + `<path d="M${f1(50 - Bw * .5)} ${f1(shirtTop + 32)} H${f1(50 + Bw * .5)} L${f1(50 + Bw * .58)} 140 H${f1(50 - Bw * .58)}Z" fill="${scD}" opacity=".35" ${st}/>`;
+        shirt = `<path d="${shirtPath(bd, shirtTop, crew)}" fill="${sc}" ${st}/>`
+          + `<path d="M45 ${CHIN - 2} L44 ${CHIN + 12} M55 ${CHIN - 2} L56 ${CHIN + 12}" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"/>`
+          + `<circle cx="44" cy="${CHIN + 13}" r="1.8" fill="#fff" stroke="${INK}" stroke-width="1.3"/><circle cx="56" cy="${CHIN + 13}" r="1.8" fill="#fff" stroke="${INK}" stroke-width="1.3"/>`
+          + `<path d="M${f1(50 - Bb * .7)} ${CHIN + 18} H${f1(50 + Bb * .7)} L${f1(50 + Bb * .8)} 140 H${f1(50 - Bb * .8)}Z" fill="${scD}" opacity=".35" clip-path="url(#${id}bd)" ${st}/>`;
         break;
       case 'sweater':
         shirt = `<pattern id="${id}sw" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="${sc}"/><rect y="6" width="10" height="4" fill="#fff" opacity=".7"/></pattern>`
-          + `<path d="${shirtPath(b, shirtTop, crew)}" fill="url(#${id}sw)" ${st}/>`;
+          + `<path d="${shirtPath(bd, shirtTop, crew)}" fill="url(#${id}sw)" ${st}/>`;
         break;
       case 'initial':
-        shirt = `<path d="${shirtPath(b, shirtTop, crew)}" fill="${sc}" ${st}/>`
-          + `<circle cx="50" cy="${f1(shirtTop + 24)}" r="9.5" fill="#fff" ${st}/>`
-          + `<text x="50" y="${f1(shirtTop + 29.5)}" text-anchor="middle" font-family="Bangers, sans-serif" font-size="15" fill="${sc === '#ffffff' ? INK : sc}" stroke="${INK}" stroke-width=".8">${spec.initial.replace(/[<&>"]/g, '')}</text>`;
+        shirt = `<path d="${shirtPath(bd, shirtTop, crew)}" fill="${sc}" ${st}/>`
+          + `<circle cx="50" cy="${CHIN + 14}" r="8.5" fill="#fff" ${st}/>`
+          + `<text x="50" y="${CHIN + 19}" text-anchor="middle" font-family="Bangers, sans-serif" font-size="13.5" fill="${sc === '#ffffff' ? INK : sc}" stroke="${INK}" stroke-width=".8">${spec.initial.replace(/[<&>"]/g, '')}</text>`;
         break;
       case 'overalls': {
-        const den = '#3f6fd6', bt = shirtTop + 10, sw = b.hw(shirtTop) - 7;
-        shirt = `<path d="${shirtPath(b, shirtTop + 30, flat)}" fill="${den}" ${st}/>`
-          + `<rect x="${f1(50 - Bw * .42)}" y="${f1(bt)}" width="${f1(Bw * .84)}" height="${f1(140 - bt)}" rx="3" fill="${den}" ${st}/>`
-          + `<path d="M${f1(50 - Bw * .38)} ${f1(bt + 2)} L${f1(50 - sw)} ${f1(shirtTop - 3)} M${f1(50 + Bw * .38)} ${f1(bt + 2)} L${f1(50 + sw)} ${f1(shirtTop - 3)}" stroke="${INK}" stroke-width="8" stroke-linecap="round"/>`
-          + `<path d="M${f1(50 - Bw * .38)} ${f1(bt + 2)} L${f1(50 - sw)} ${f1(shirtTop - 3)} M${f1(50 + Bw * .38)} ${f1(bt + 2)} L${f1(50 + sw)} ${f1(shirtTop - 3)}" stroke="${den}" stroke-width="4.4" stroke-linecap="round"/>`
-          + `<circle cx="${f1(50 - Bw * .34)}" cy="${f1(bt + 5)}" r="2.6" fill="#ffd23f" stroke="${INK}" stroke-width="1.4"/><circle cx="${f1(50 + Bw * .34)}" cy="${f1(bt + 5)}" r="2.6" fill="#ffd23f" stroke="${INK}" stroke-width="1.4"/>`
-          + `<rect x="${f1(50 - Bw * .2)}" y="${f1(bt + 13)}" width="${f1(Bw * .4)}" height="12" rx="2" fill="none" stroke="${INK}" stroke-width="1.6" stroke-dasharray="2.5 2"/>`;
+        const den = '#3f6fd6', bt = CHIN + 4, sw = bd.hw(shirtTop) - 6;
+        shirt = `<path d="${shirtPath(bd, shirtTop + 30, flat)}" fill="${den}" ${st}/>`
+          + `<rect x="${f1(50 - Bb * .6)}" y="${f1(bt)}" width="${f1(Bb * 1.2)}" height="${f1(140 - bt)}" rx="3" fill="${den}" clip-path="url(#${id}bd)" ${st}/>`
+          + `<path d="M${f1(50 - Bb * .52)} ${f1(bt + 2)} L${f1(50 - sw)} ${f1(shirtTop - 3)} M${f1(50 + Bb * .52)} ${f1(bt + 2)} L${f1(50 + sw)} ${f1(shirtTop - 3)}" stroke="${INK}" stroke-width="8" stroke-linecap="round"/>`
+          + `<path d="M${f1(50 - Bb * .52)} ${f1(bt + 2)} L${f1(50 - sw)} ${f1(shirtTop - 3)} M${f1(50 + Bb * .52)} ${f1(bt + 2)} L${f1(50 + sw)} ${f1(shirtTop - 3)}" stroke="${den}" stroke-width="4.4" stroke-linecap="round"/>`
+          + `<circle cx="${f1(50 - Bb * .46)}" cy="${f1(bt + 5)}" r="2.6" fill="#ffd23f" stroke="${INK}" stroke-width="1.4"/><circle cx="${f1(50 + Bb * .46)}" cy="${f1(bt + 5)}" r="2.6" fill="#ffd23f" stroke="${INK}" stroke-width="1.4"/>`
+          + `<rect x="${f1(50 - Bb * .3)}" y="${f1(bt + 11)}" width="${f1(Bb * .6)}" height="10" rx="2" fill="none" stroke="${INK}" stroke-width="1.6" stroke-dasharray="2.5 2"/>`;
         break;
       }
       case 'bowtie': {
-        const y = shirtTop - 2;
-        shirt = `<path d="M50 ${y} L38 ${y - 7} L38 ${y + 7}Z M50 ${y} L62 ${y - 7} L62 ${y + 7}Z" fill="${sc}" ${st}/><rect x="46.5" y="${y - 4}" width="7" height="8" rx="2" fill="${scD}" ${st}/>`;
+        const y = CHIN + 1;
+        neckwear = `<path d="M50 ${y} L38 ${y - 7} L38 ${y + 7}Z M50 ${y} L62 ${y - 7} L62 ${y + 7}Z" fill="${sc}" ${st}/><rect x="46.5" y="${y - 4}" width="7" height="8" rx="2" fill="${scD}" ${st}/>`;
         break;
       }
       case 'scarf': {
-        const y = shirtTop - 3, xl = 50 - b.hw(y) - 3, xr = 50 + b.hw(y) + 3;
-        shirt = `<path d="M${f1(50 + Bw * .25)} ${y + 3} L${f1(50 + Bw * .5)} ${y + 34} L${f1(50 + Bw * .22)} ${y + 36} L${f1(50 + Bw * .08)} ${y + 4}Z" fill="${sc}" ${st}/>`
+        const y = CHIN + 1, xl = 50 - Bb - 4, xr = 50 + Bb + 4;
+        neckwear = `<path d="M${f1(50 + Bb * .3)} ${y + 3} L${f1(50 + Bb * .7)} ${y + 26} L${f1(50 + Bb * .3)} ${y + 28} L${f1(50 + Bb * .08)} ${y + 4}Z" fill="${sc}" ${st}/>`
           + `<path d="M${f1(xl)} ${y - 5} Q50 ${y + 4} ${f1(xr)} ${y - 5} L${f1(xr)} ${y + 6} Q50 ${y + 15} ${f1(xl)} ${y + 6}Z" fill="${sc}" ${st}/>`
           + `<path d="M${f1(xl + 10)} ${y - 1} L${f1(xl + 10)} ${y + 10} M${f1(xr - 10)} ${y - 1} L${f1(xr - 10)} ${y + 10}" stroke="#fff" stroke-width="3" opacity=".7"/>`;
         break;
@@ -758,36 +785,40 @@
     // ---- arms: posed by the mood ----
     let arms = '';
     if (spec.arms) {
-      const sy = Math.max(my + 22, T + 58);   // shoulder height
+      const sy = CHIN + 3;                    // shoulder height, just under the chin
       const sleeve = ['tee', 'vneck', 'hoodie', 'sweater', 'initial'].includes(spec.shirt) ? (spec.shirt === 'sweater' ? `url(#${id}sw)` : sc) : null;
       const pose = { talk: 'wave', laugh: 'belly', love: 'clasp', sad: 'down', angry: 'fists', wow: 'up', shout: 'up', puzzled: 'scratch', think: 'chin' }[expr] || 'down';
       const lerp = (a, c, t) => [a[0] + (c[0] - a[0]) * t, a[1] + (c[1] - a[1]) * t];
       for (const side of [-1, 1]) {
         let p = pose;
         if ((pose === 'wave' || pose === 'scratch' || pose === 'chin') && side !== spec.hand) p = 'down';
-        const S = [50 + side * (b.hw(sy) - 5), sy];
+        const S = [50 + side * (bd.hw(sy) - 4), sy];
         let H, C;
         switch (p) {
           case 'wave': H = [50 + side * (Bw + 15), T + 24]; C = [50 + side * (Bw + 20), sy - 4]; break;
           case 'up': H = [50 + side * (Bw + 12), T + 6]; C = [50 + side * (Bw + 18), sy - 10]; break;
           case 'fists': H = [50 + side * Bw * .62, sy - 6]; C = [50 + side * (Bw + 16), sy + 8]; break;
-          case 'clasp': H = [50 + side * 5, sy + 6]; C = [50 + side * Bw * .9, sy + 24]; break;
-          case 'belly': H = [50 + side * Bw * .32, sy + 22]; C = [50 + side * (Bw + 6), sy + 22]; break;
+          case 'clasp': H = [50 + side * 5, sy + 8]; C = [50 + side * (Bb + 6), sy + 16]; break;
+          case 'belly': H = [50 + side * Bb * .35, sy + 14]; C = [50 + side * (Bb + 9), sy + 16]; break;
           case 'chin': H = [50 + side * mw * .5, my + 12]; C = [50 + side * (Bw + 8), sy + 18]; break;
           case 'scratch': H = [50 + side * W * .8, T + 6]; C = [50 + side * (Bw + 18), sy - 8]; break;
-          default: H = [50 + side * (Bw + 6), sy + 34]; C = [50 + side * (Bw + 10), sy + 14];
+          default: H = [50 + side * (Bb + 8), sy + 20]; C = [50 + side * (Bb + 11), sy + 7];
         }
         const d = `M${f1(S[0])} ${f1(S[1])} Q${f1(C[0])} ${f1(C[1])} ${f1(H[0])} ${f1(H[1])}`;
-        let g = `<path d="${d}" fill="none" stroke="${INK}" stroke-width="12.5" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${fur}" stroke-width="7.6" stroke-linecap="round"/>`;
+        // arm and hand (a mitten with a thumb, or a fist) share one outline, like the body
+        const [hx, hy] = H;
+        const hand = (a) => `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" ${a}/>` + (p === 'fists' ? '' : `<circle cx="${f1(hx - side * 5)}" cy="${f1(hy - 3.5)}" r="2.9" ${a}/>`);
+        let g = `<path d="${d}" fill="none" stroke="${INK}" stroke-width="12.5" stroke-linecap="round" mask="url(#${id}am)"/>` + hand(inkA)
+          + `<path d="${d}" fill="none" stroke="${fur}" stroke-width="7.6" stroke-linecap="round"/>`
+          // a darker underside so the arm looks round, like the head and body
+          + `<path d="${d}" fill="none" stroke="${furD}" stroke-width="3" stroke-linecap="round" opacity=".4" transform="translate(1.4 1.8)"/>`
+          + hand(furA) + `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" fill="url(#${id}rg)"/>`;
+        if (p === 'fists') g += `<path d="M${f1(hx - 3.5)} ${f1(hy - 2)} q1.7 -2 3.5 0 q1.7 -2 3.5 0" fill="none" stroke="${INK}" stroke-width="1.5"/>`;
         if (sleeve) {
           const q0 = lerp(S, C, .4), q1 = lerp(C, H, .4), m = lerp(q0, q1, .4);
           const sd = `M${f1(S[0])} ${f1(S[1])} Q${f1(q0[0])} ${f1(q0[1])} ${f1(m[0])} ${f1(m[1])}`;
-          g += `<path d="${sd}" fill="none" stroke="${INK}" stroke-width="15" stroke-linecap="round"/><path d="${sd}" fill="none" stroke="${sleeve}" stroke-width="10" stroke-linecap="round"/>`;
+          g += `<path d="${sd}" fill="none" stroke="${INK}" stroke-width="15" stroke-linecap="round" mask="url(#${id}am)"/><path d="${sd}" fill="none" stroke="${sleeve}" stroke-width="10" stroke-linecap="round"/>`;
         }
-        // hand: a mitten with a thumb, or a fist
-        const [hx, hy] = H;
-        if (p === 'fists') g += `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" fill="${fur}" ${st}/><path d="M${f1(hx - 3.5)} ${f1(hy - 2)} q1.7 -2 3.5 0 q1.7 -2 3.5 0" fill="none" stroke="${INK}" stroke-width="1.5"/>`;
-        else g += `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" fill="${fur}" ${st}/><circle cx="${f1(hx - side * 5)}" cy="${f1(hy - 3.5)}" r="2.9" fill="${fur}" ${st}/>`;
         arms += p === 'wave' ? `<g class="wav" style="transform-origin:${f1(S[0] + 6)}px ${f1(S[1] + 10)}px">${g}</g>` : g;
       }
     }
@@ -818,10 +849,31 @@
       front += `<g transform="translate(0 ${up})"><path d="M34 26 L36 8 L43 16 L50 3 L57 16 L64 8 L66 26Z" fill="#ffd23f" ${st}/><circle cx="50" cy="20" r="2.6" fill="#e8192c" stroke="${INK}" stroke-width="1.5"/><circle cx="40.5" cy="21.5" r="2" fill="#2b9bff" stroke="${INK}" stroke-width="1.5"/><circle cx="59.5" cy="21.5" r="2" fill="#39d36b" stroke="${INK}" stroke-width="1.5"/></g>`;
     }
 
-    return `<svg viewBox="-6 -10 112 136" xmlns="http://www.w3.org/2000/svg">`
+    // ---- shading, so the fur reads as round: a soft falloff toward the edges, a cel-shaded shadow
+    // along the lower right and a rim of light along the upper left (both are the shape minus a
+    // nudged copy of itself), plus the shadow the head casts on the body ----
+    const box = `maskUnits="userSpaceOnUse" x="-20" y="-40" width="140" height="200"`;
+    let shades = 0;
+    const furShade = (d) => {
+      const k = `${id}s${++shades}`;
+      return `<mask id="${k}d" ${box}><path d="${d}" fill="#fff"/><path d="${d}" fill="#000" transform="translate(-6 -5)"/></mask>`
+        + `<mask id="${k}l" ${box}><path d="${d}" fill="#fff"/><path d="${d}" fill="#000" transform="translate(2.5 2.5)"/></mask>`
+        + `<path d="${d}" fill="url(#${id}rg)"/>`
+        + `<path d="${d}" fill="${furD}" opacity=".5" mask="url(#${k}d)"/>`
+        + `<path d="${d}" fill="#fff" opacity=".3" mask="url(#${k}l)"/>`;
+    };
+    const cast = `<path d="${spec.headPath}" fill="#000" opacity=".2" transform="translate(1 6)" clip-path="url(#${id}bd)"/>`;
+
+    return `<svg viewBox="-6 -10 112 148" xmlns="http://www.w3.org/2000/svg">`
       + `<g class="bob"><g transform="rotate(${f1(spec.tilt + look * 3)} 50 130)">`
+      // arm outlines are hidden over the body so shoulders blend in, but never over the head
+      + `<defs><mask id="${id}am" maskUnits="userSpaceOnUse" x="-20" y="-40" width="140" height="200"><rect x="-20" y="-40" width="140" height="200" fill="#fff"/>`
+      + `<path d="${spec.bodyPath}" fill="#000"/><path d="${spec.headPath}" fill="#fff"/></mask>`
+      + `<radialGradient id="${id}rg" cx=".4" cy=".34" r=".72"><stop offset=".5" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></radialGradient></defs>`
       + back
-      + `<g class="bod">${body}</g>`
+      + silInk
+      + `<g class="bod">${body}${furShade(spec.bodyPath)}${cast}</g>`
+      + head + furShade(spec.headPath) + neckwear
       + cheek + nose
       + `<g class="eyes">${eyeSvg}</g>`
       + `<g class="mc">${mc}</g><g class="mo">${mo}</g>`
@@ -1058,7 +1110,7 @@
   // they fit (same people, room left, not too long ago), otherwise a fresh panel slides in and the
   // oldest one slides out.
   const panels = [];
-  let lastSpeaker = null, lastPanelAt = 0, storyStarted = false, freshStrip = true;
+  let lastPanelAt = 0, storyStarted = false, freshStrip = true;
   const prevPanel = (p) => { const i = panels.indexOf(p); return panels[(i < 0 ? panels.length : i) - 1]; };
   function sideIn(p, key) {
     const c = p && p.chars.length === 2 && p.chars.find(x => x.key === key);
@@ -1165,8 +1217,9 @@
       if (!t || tag.querySelector('.pro')) return;
       const pr = document.createElement('span'); pr.className = 'pro'; pr.textContent = t; tag.appendChild(pr);
     };
-    if (who.pron) addPro(who.pron); else if (who.pronP) who.pronP.then(addPro);
+    if (who.pron) addPro(who.pron); else if (who.pronP) who.pronP.then(t => { addPro(t); relayout(p); });
     c.el.appendChild(tag);
+    c.tag = tag;
     p.pin.appendChild(c.el);
     p.chars.push(c);
     return c;
@@ -1244,15 +1297,27 @@
   function layoutPanel(p) {
     const H = CFG.ph - 4; // inside the frame
     const n = p.chars.length;
-    const ch = H * .62, cw = ch * 112 / 136;
+    const ch = H * .6, cw = ch * 112 / 148;
     p.el.style.setProperty('--ch', ch + 'px');
     p.el.style.setProperty('--cw', cw + 'px');
     const yb = H * .8, Lb = p.L(yb), span = p.R(yb) - Lb;
     for (const c of p.chars) {
       c.x = Lb + span * (n === 1 ? .5 + p.off : c.side === 'L' ? .27 : .73);
       c.el.style.left = (c.x - cw / 2) + 'px';
-      c.headTop = H + ch * .06 - ch + ch * (33 / 136);
+      c.headTop = H + ch * .03 - ch + ch * (33 / 148);
       drawChar(c, p);
+    }
+    // Name tags get the whole width under their character (their half of the panel when there are
+    // two), centred on the character but nudged in so long names stay inside the frame.
+    const ty = H - ch * .05, tl = Math.max(p.L(ty), p.L(ty - 24)) + 6, tr = Math.min(p.R(ty), p.R(ty - 24)) - 6, mid = (tl + tr) / 2;
+    for (const c of p.chars) {
+      const lo = n === 2 && c.side === 'R' ? mid + 3 : tl, hi = n === 2 && c.side === 'L' ? mid - 3 : tr;
+      c.tag.style.maxWidth = (hi - lo) + 'px';
+      // shrink long names a little before they get cut off with "…"
+      const nm = c.tag.querySelector('.nm');
+      for (let f = 15; ; f--) { c.tag.style.fontSize = f + 'px'; if (f <= 11 || nm.scrollWidth <= nm.clientWidth) break; }
+      const tw = c.tag.offsetWidth;
+      c.tag.style.left = (clamp(c.x - tw / 2, lo, hi - tw) - (c.x - cw / 2)) + 'px';
     }
     let top = 9;
     if (p.cap) {
@@ -1388,15 +1453,14 @@
     if (it.event) return placeEvent(it);
     const now = Date.now();
     if (!chatters.has(it.who)) return;
-    const target = it.target && it.target !== it.who && chatters.has(it.target) ? it.target : null;
     const cur = panels.filter(x => !x.dead).pop();
 
-    // join the current panel when it fits
+    // join the current panel when it fits (only people who are talking are ever in a panel)
     if (cur && !cur.sealed && cur.bubbles.length < 2 && now - cur.last < 14000) {
-      const keys = new Set(cur.chars.map(c => c.key)); keys.add(it.who); if (target) keys.add(target);
+      const keys = new Set(cur.chars.map(c => c.key)); keys.add(it.who);
       if (keys.size <= 2) {
         const added = [];
-        for (const k of [it.who, target]) if (k && !cur.chars.some(c => c.key === k)) added.push(addChar(cur, k));
+        if (!cur.chars.some(c => c.key === it.who)) added.push(addChar(cur, it.who));
         // a narrow one-person panel stretches when someone joins
         if (added.length && cur.chars.length === 2 && cur.w < CFG.pw) { cur.w = Math.round(CFG.pw * (1.02 + Math.random() * .18)); setGeom(cur); }
         const b = addBubble(cur, it);
@@ -1411,9 +1475,7 @@
       }
     }
 
-    let partner = target;
-    if (!partner && CFG.listeners && lastSpeaker && lastSpeaker.key !== it.who && now - lastSpeaker.at < 15000 && chatters.has(lastSpeaker.key)) partner = lastSpeaker.key;
-    const p = newPanel(partner ? [it.who, partner] : [it.who], {
+    const p = newPanel([it.who], {
       caption: captionFor(now, it),
       bg: it.kind === 'narr' ? null : MOOD_BG[moodOf(it.tokens, it.kind)],
     });
@@ -1440,7 +1502,6 @@
   function landed(p, it) {
     const now = Date.now();
     p.last = now; lastPanelAt = now;
-    if (!it.event) lastSpeaker = { key: it.who, at: now };
     const c = p.chars.find(x => x.key === it.who);
     if (c && it.kind !== 'thought' && it.kind !== 'narr') {
       c.el.classList.add('talking');
@@ -1498,7 +1559,6 @@
   function clearStrip() {
     panels.filter(p => !p.dead).forEach((p, i) => setTimeout(() => retire(p, 'drop'), i * 140));
     freshStrip = true;
-    lastSpeaker = null;
   }
 
   // a deleted message or banned chatter gets blacked out
@@ -1516,17 +1576,12 @@
     tokens = expandExtEmotes(tokens || [{ t: 'text', v: plain }]);
     const who = upsertChatter({ name, login, platform, color, badges });
 
-    // who are they talking to? (Twitch replies, or an @mention of someone who's chatted)
-    let target = null;
-    if (replyTo && replyTo.name) {
-      const rl = (replyTo.login || replyTo.name).toLowerCase();
-      target = chatters.has(platform + ':' + rl) ? platform + ':' + rl
-        : byName.get(rl) || upsertChatter({ name: replyTo.name, login: replyTo.login, platform });
-      tokens = stripMention(tokens, replyTo.name);
-    } else {
+    // replies and @mentions of someone who's chatted lose their leading "@name"
+    if (replyTo && replyTo.name) tokens = stripMention(tokens, replyTo.name);
+    else {
       const m = /^\s*@([\w.-]+)/.exec(plain);
-      const k = m && (byName.get(m[1].toLowerCase()) || null);
-      if (k && k !== who) { target = k; tokens = stripMention(tokens, m[1]); }
+      const k = m && byName.get(m[1].toLowerCase());
+      if (k && k !== who) tokens = stripMention(tokens, m[1]);
     }
     if (!tokens.some(t => t.t !== 'text' || t.v.trim())) return;
 
@@ -1536,7 +1591,7 @@
     if (action) kind = 'narr';
     else if (letters.length >= 4 && letters === letters.toUpperCase()) kind = 'shout';
     else if (/(\.\.\.|…)$/.test(textOnly) && textOnly.length > 4 || /^hm+\b/i.test(textOnly)) kind = 'thought';
-    enqueue({ who, target, tokens, kind, msgId, login: (login || name).toLowerCase(), platform });
+    enqueue({ who, tokens, kind, msgId, login: (login || name).toLowerCase(), platform });
   }
 
   window.chatComics = {
@@ -1557,7 +1612,7 @@
     panels.forEach(p => p.slot.remove());
     panels.length = 0;
     strip.classList.add('empty');
-    freshStrip = true; lastSpeaker = null;
+    freshStrip = true;
   }
   function setHidden(h) {
     if (h === hidden) return;
