@@ -94,6 +94,26 @@
   .char.talking .mo{animation:talk .2s infinite alternate}
   .char.talking .mc{animation:talk .2s infinite alternate-reverse}
   @keyframes talk{from{opacity:1}to{opacity:0}}
+  /* busy with a prop: arm frames flip back and forth, drops fall, and the body joins in */
+  .char .af{animation:af var(--ad) steps(1) infinite}
+  .char .af1{animation-delay:calc(var(--ad) * -.5)}
+  @keyframes af{0%{opacity:1}50%,100%{opacity:0}}
+  .char .a-drop{animation:aDrop .9s ease-in infinite;transform-box:fill-box}
+  @keyframes aDrop{0%{opacity:0;transform:none}20%{opacity:1}100%{opacity:0;transform:translateY(18px)}}
+  .char[class*=" a-"] .art{transform-origin:50% 100%}
+  .char.a-dance .art{animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both, aDance .48s .55s ease-in-out infinite alternate}
+  @keyframes aDance{from{transform:rotate(-5deg)}to{transform:translateY(-6%) rotate(5deg)}}
+  .char.a-hop .art{animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both, aHop .36s .55s ease-out infinite alternate}
+  @keyframes aHop{to{transform:translateY(-9%)}}
+  .char.a-sway .art{animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both, aSway 2.6s .55s ease-in-out infinite alternate}
+  @keyframes aSway{from{transform:rotate(-5deg)}to{transform:rotate(5deg)}}
+  .char.a-cozy .art{animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both, aCozy 2.2s .55s ease-in-out infinite alternate}
+  @keyframes aCozy{from{transform:rotate(-1.5deg)}to{transform:rotate(1.5deg)}}
+  .char.a-sing .art{animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both, aCozy .9s .55s ease-in-out infinite alternate}
+  .char.a-sing .mo{animation:talk .25s infinite alternate}
+  .char.a-sing .mc{animation:talk .25s infinite alternate-reverse}
+  .char.a-shiver .art{animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both, aShiver .09s .55s linear infinite alternate}
+  @keyframes aShiver{from{transform:translateX(-1.2%)}to{transform:translateX(1.2%)}}
   .char.hype .art{animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both, hype .42s .55s ease-in-out infinite alternate}
   @keyframes hype{from{transform:none}to{transform:translateY(-7%) rotate(3deg)}}
 
@@ -118,9 +138,9 @@
     background:#fff;border:2px solid var(--ink);border-radius:5px;padding:2px 3px 1px}
 
   /* ---------- props ---------- */
-  .prop{position:absolute;bottom:calc(var(--ch) * -.03);z-index:2;animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both}
+  .prop{position:absolute;bottom:calc(var(--ch) * -.03);z-index:1;animation:charIn .55s cubic-bezier(.2,1.5,.4,1) both}
   .prop svg{width:100%;height:100%;display:block;overflow:visible}
-  .prop svg *{transform-box:fill-box}
+  .prop svg [class*="pf-"]{transform-box:fill-box}
   .pf-steam{animation:pfSteam 2.4s ease-in infinite;transform-origin:50% 100%}
   @keyframes pfSteam{0%{opacity:0;transform:translateY(6px) scaleY(.6)}30%{opacity:.9}100%{opacity:0;transform:translateY(-14px) scaleY(1.1)}}
   .pf-note{animation:pfNote 2.2s ease-out infinite}
@@ -822,39 +842,56 @@
       const sleeve = ['tee', 'vneck', 'hoodie', 'sweater', 'initial'].includes(spec.shirt) ? (spec.shirt === 'sweater' ? `url(#${id}sw)` : sc) : null;
       const pose = { talk: 'wave', laugh: 'belly', love: 'clasp', sad: 'down', angry: 'fists', wow: 'up', shout: 'up', puzzled: 'scratch', think: 'chin' }[expr] || 'down';
       const lerp = (a, c, t) => [a[0] + (c[0] - a[0]) * t, a[1] + (c[1] - a[1]) * t];
-      for (const side of [-1, 1]) {
-        let p = pose;
-        if ((pose === 'wave' || pose === 'scratch' || pose === 'chin') && side !== spec.hand) p = 'down';
-        if (o.reach && side === o.reach && (pose === 'wave' || pose === 'down')) p = 'reach';   // busy with a prop
-        const S = [50 + side * (bd.hw(sy) - 4), sy];
-        let H, C;
+      const at = (p, side) => {
         switch (p) {
-          case 'wave': H = [50 + side * (Bw + 15), T + 24]; C = [50 + side * (Bw + 20), sy - 4]; break;
-          case 'reach': H = [50 + side * (Bw + 17), sy - 3]; C = [50 + side * (Bb + 12), sy + 10]; break;
-          case 'up': H = [50 + side * (Bw + 12), T + 6]; C = [50 + side * (Bw + 18), sy - 10]; break;
-          case 'fists': H = [50 + side * Bw * .62, sy - 6]; C = [50 + side * (Bw + 16), sy + 8]; break;
-          case 'clasp': H = [50 + side * 5, sy + 8]; C = [50 + side * (Bb + 6), sy + 16]; break;
-          case 'belly': H = [50 + side * Bb * .35, sy + 14]; C = [50 + side * (Bb + 9), sy + 16]; break;
-          case 'chin': H = [50 + side * mw * .5, my + 12]; C = [50 + side * (Bw + 8), sy + 18]; break;
-          case 'scratch': H = [50 + side * W * .8, T + 6]; C = [50 + side * (Bw + 18), sy - 8]; break;
-          default: H = [50 + side * (Bb + 8), sy + 20]; C = [50 + side * (Bb + 11), sy + 7];
+          case 'wave': return [[50 + side * (Bw + 15), T + 24], [50 + side * (Bw + 20), sy - 4]];
+          case 'reach': return [[50 + side * (Bw + 17), sy - 3], [50 + side * (Bb + 12), sy + 10]];
+          case 'up': return [[50 + side * (Bw + 12), T + 6], [50 + side * (Bw + 18), sy - 10]];
+          case 'fists': return [[50 + side * Bw * .62, sy - 6], [50 + side * (Bw + 16), sy + 8]];
+          case 'clasp': return [[50 + side * 5, sy + 8], [50 + side * (Bb + 6), sy + 16]];
+          case 'belly': return [[50 + side * Bb * .35, sy + 14], [50 + side * (Bb + 9), sy + 16]];
+          case 'chin': return [[50 + side * mw * .5, my + 12], [50 + side * (Bw + 8), sy + 18]];
+          case 'scratch': return [[50 + side * W * .8, T + 6], [50 + side * (Bw + 18), sy - 8]];
+          default: return [[50 + side * (Bb + 8), sy + 20], [50 + side * (Bb + 11), sy + 7]];
         }
-        const d = `M${f1(S[0])} ${f1(S[1])} Q${f1(C[0])} ${f1(C[1])} ${f1(H[0])} ${f1(H[1])}`;
-        // arm and hand (a mitten with a thumb, or a fist) share one outline, like the body
-        const [hx, hy] = H;
-        const hand = (a) => `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" ${a}/>` + (p === 'fists' ? '' : `<circle cx="${f1(hx - side * 5)}" cy="${f1(hy - 3.5)}" r="2.9" ${a}/>`);
-        let g = `<path d="${d}" fill="none" stroke="${INK}" stroke-width="12.5" stroke-linecap="round" mask="url(#${id}am)"/>` + hand(inkA)
-          + `<path d="${d}" fill="none" stroke="${fur}" stroke-width="7.6" stroke-linecap="round"/>`
-          // a darker underside so the arm looks round, like the head and body
-          + `<path d="${d}" fill="none" stroke="${furD}" stroke-width="3" stroke-linecap="round" opacity=".4" transform="translate(1.4 1.8)"/>`
-          + hand(furA) + `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" fill="url(#${id}rg)"/>`;
-        if (p === 'fists') g += `<path d="M${f1(hx - 3.5)} ${f1(hy - 2)} q1.7 -2 3.5 0 q1.7 -2 3.5 0" fill="none" stroke="${INK}" stroke-width="1.5"/>`;
-        if (sleeve) {
-          const q0 = lerp(S, C, .4), q1 = lerp(C, H, .4), m = lerp(q0, q1, .4);
-          const sd = `M${f1(S[0])} ${f1(S[1])} Q${f1(q0[0])} ${f1(q0[1])} ${f1(m[0])} ${f1(m[1])}`;
-          g += `<path d="${sd}" fill="none" stroke="${INK}" stroke-width="15" stroke-linecap="round" mask="url(#${id}am)"/><path d="${sd}" fill="none" stroke="${sleeve}" stroke-width="10" stroke-linecap="round"/>`;
-        }
-        arms += p === 'wave' ? `<g class="wav" style="transform-origin:${f1(S[0] + 6)}px ${f1(S[1] + 10)}px">${g}</g>` : g;
+      };
+      // Busy with a prop: each hand gets one or two frames, flipped like the talking mouth. A frame
+      // is a pose name, or a spot to put the hand plus something to hold there.
+      const act = o.act && (pose === 'wave' || pose === 'down') ? propAct(o.act, { T, W, Bw, Bb, sy, my, mw }) : null;
+      for (const side of [-1, 1]) {
+        let mood = pose;
+        if ((pose === 'wave' || pose === 'scratch' || pose === 'chin') && side !== spec.hand) mood = 'down';
+        const S = [50 + side * (bd.hw(sy) - 4), sy];
+        const frames = act ? act[side === o.act.s ? 'near' : 'far'] || ['down'] : [mood];
+        frames.forEach((fr, fi) => {
+          let p = fr, H, C, item = '';
+          if (typeof fr === 'string') [H, C] = at(fr, side);
+          else {
+            p = fr.fist ? 'fists' : 'hold';
+            // keep the arm from stretching too far, then bend the elbow outward and down
+            const dx = fr.at[0] - S[0], dy = fr.at[1] - S[1], len = Math.hypot(dx, dy), max = Bw + 30;
+            H = len > max ? [S[0] + dx * max / len, S[1] + dy * max / len] : fr.at;
+            C = [(S[0] + H[0]) / 2 + side * 7, Math.max(S[1], H[1]) + 8];
+            if (fr.item) item = fr.item(H[0], H[1], side);
+          }
+          const d = `M${f1(S[0])} ${f1(S[1])} Q${f1(C[0])} ${f1(C[1])} ${f1(H[0])} ${f1(H[1])}`;
+          // arm and hand (a mitten with a thumb, or a fist) share one outline, like the body
+          const [hx, hy] = H;
+          const hand = (a) => `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" ${a}/>` + (p === 'fists' ? '' : `<circle cx="${f1(hx - side * 5)}" cy="${f1(hy - 3.5)}" r="2.9" ${a}/>`);
+          let g = item + `<path d="${d}" fill="none" stroke="${INK}" stroke-width="12.5" stroke-linecap="round" mask="url(#${id}am)"/>` + hand(inkA)
+            + `<path d="${d}" fill="none" stroke="${fur}" stroke-width="7.6" stroke-linecap="round"/>`
+            // a darker underside so the arm looks round, like the head and body
+            + `<path d="${d}" fill="none" stroke="${furD}" stroke-width="3" stroke-linecap="round" opacity=".4" transform="translate(1.4 1.8)"/>`
+            + hand(furA) + `<circle cx="${f1(hx)}" cy="${f1(hy)}" r="6.6" fill="url(#${id}rg)"/>`;
+          if (p === 'fists') g += `<path d="M${f1(hx - 3.5)} ${f1(hy - 2)} q1.7 -2 3.5 0 q1.7 -2 3.5 0" fill="none" stroke="${INK}" stroke-width="1.5"/>`;
+          if (sleeve) {
+            const q0 = lerp(S, C, .4), q1 = lerp(C, H, .4), m = lerp(q0, q1, .4);
+            const sd = `M${f1(S[0])} ${f1(S[1])} Q${f1(q0[0])} ${f1(q0[1])} ${f1(m[0])} ${f1(m[1])}`;
+            g += `<path d="${sd}" fill="none" stroke="${INK}" stroke-width="15" stroke-linecap="round" mask="url(#${id}am)"/><path d="${sd}" fill="none" stroke="${sleeve}" stroke-width="10" stroke-linecap="round"/>`;
+          }
+          if (p === 'wave') g = `<g class="wav" style="transform-origin:${f1(S[0] + 6)}px ${f1(S[1] + 10)}px">${g}</g>`;
+          arms += frames.length > 1 ? `<g class="af af${fi}" style="--ad:${act.dur || .5}s">${g}</g>` : g;
+        });
       }
     }
 
@@ -1142,7 +1179,7 @@
 
   // ---------------- props ----------------
   // Sometimes a chatter gets a panel to themselves with a prop instead of a second chatter, so it
-  // looks like they're up to something: gaming, eating pizza, jamming to the radio. A word in the
+  // looks like they're up to something: gaming, eating pizza, dancing to the radio. A word in the
   // message picks the prop when one matches; otherwise it's random. Each is drawn in a 100-wide box
   // (vh tall) standing on the floor, h is its height next to a monster's, and dir props face left
   // and get flipped to face the monster when they stand on the left.
@@ -1152,103 +1189,140 @@
   const notes = (spots) => spots.map(([x, y], i) => `<text class="pf-note" style="animation-delay:${-i * .7}s" x="${x}" y="${y}" font-size="17" font-family="sans-serif" font-weight="700" fill="#111">${i % 2 ? '♫' : '♪'}</text>`).join('');
   const twinkle = (x, y, r, d = 0) => `<path class="pf-blink" style="animation-delay:${d}s" d="M${x} ${y - r} Q${x} ${y} ${x + r} ${y} Q${x} ${y} ${x} ${y + r} Q${x} ${y} ${x - r} ${y} Q${x} ${y} ${x} ${y - r}Z" fill="#fff" stroke="#111" stroke-width="1.4"/>`;
   const PROPS = [
-    { id: 'tv', h: .64, kw: /\b(game|gaming|play(ing)?|boss|level|lag+(ing)?|speedrun|controller|gg)\b/i, svg: () =>
+    { id: 'tv', h: .64, act: 'game', held: 'pad', kw: /\b(game|gaming|play(ing)?|boss|level|lag+(ing)?|speedrun|controller|gg)\b/i, svg: () =>
       `<path d="M28 99 L40 84 H60 L72 99Z" fill="#3b3f5c" ${PO}/><path d="M42 22 L30 6 M58 22 L70 6" fill="none" ${PO}/>`
       + `<rect x="6" y="20" width="88" height="66" rx="9" fill="#2d3047" ${PO}/>`
       + `<g class="pf-flicker"><rect x="13" y="27" width="74" height="50" rx="4" fill="#8fe3ff"/><rect x="13" y="66" width="74" height="11" fill="#55c46a"/>`
       + `<rect x="56" y="50" width="16" height="5" fill="#c8823e"/><circle cx="76" cy="36" r="4" fill="#ffd23f"/>`
       + `<g class="pf-hop"><rect x="30" y="55" width="9" height="11" rx="1" fill="#ff4f6d"/><rect x="32" y="57" width="2.5" height="2.5" fill="#fff"/></g></g>`
       + `<rect x="13" y="27" width="74" height="50" rx="4" fill="none" ${PO}/>` },
-    { id: 'arcade', h: .84, vh: 150, kw: /\b(arcade|retro|high ?score|pac-?man|tetris|insert coin)\b/i, svg: () =>
+    { id: 'arcade', h: .84, vh: 150, act: 'touch', at: [[36, 72], [41, 72]], atL: [[67, 84], [63, 82]], dur: .3, kw: /\b(arcade|retro|high ?score|pac-?man|tetris|insert coin)\b/i, svg: () =>
       `<path d="M22 148 V40 L30 12 H70 L78 40 V148Z" fill="#6b4bff" ${PO}/><rect x="28" y="16" width="44" height="13" rx="2" fill="#ffd23f" ${PO}/>`
       + `<text x="50" y="26.5" text-anchor="middle" font-family="Bangers, sans-serif" font-size="11" fill="#111">GAME</text>`
       + `<rect x="28" y="38" width="44" height="36" rx="3" fill="#111" ${PO}/><g class="pf-flicker"><rect x="34" y="44" width="6" height="5" fill="#39d36b"/><rect x="47" y="44" width="6" height="5" fill="#39d36b"/><rect x="60" y="44" width="6" height="5" fill="#ff7ad9"/>`
       + `<rect x="40" y="53" width="6" height="5" fill="#ff7ad9"/><rect x="54" y="53" width="6" height="5" fill="#39d36b"/><rect class="pf-swim" x="46" y="66" width="8" height="4" fill="#ffd23f"/></g>`
       + `<path d="M18 92 L22 80 H78 L82 92Z" fill="#8b6cff" ${PO}/><path d="M38 84 V74" stroke="#111" stroke-width="3"/><circle cx="38" cy="73" r="4.5" fill="#ff4f6d" ${PO}/>`
       + `<circle cx="56" cy="86" r="3.5" fill="#ffd23f" ${PO}/><circle cx="66" cy="84" r="3.5" fill="#4fb6ff" ${PO}/>` },
-    { id: 'laptop', h: .7, kw: /\b(code|coding|work(ing)?|bug|deploy|homework|school|email|laptop|computer|pc)\b/i, svg: () =>
+    { id: 'laptop', h: .7, act: 'touch', at: [[32, 53], [40, 56]], dur: .2, kw: /\b(code|coding|work(ing)?|bug|deploy|homework|school|email|laptop|computer|pc)\b/i, svg: () =>
       table() + `<path d="M30 56 L26 24 H74 L70 56Z" fill="#454b70" ${PO}/><path d="M32.5 52 L29.5 28 H70.5 L67.5 52Z" fill="#1e2440"/>`
       + `<rect x="34" y="32" width="18" height="3" fill="#7ee0a1"/><rect x="38" y="38" width="24" height="3" fill="#ffd23f"/><rect x="38" y="44" width="14" height="3" fill="#ff7ad9"/>`
       + `<rect class="pf-blink" x="54" y="44" width="5" height="3.5" fill="#fff"/><path d="M20 58 L28 54 H72 L80 58Z" fill="#b9bfd8" ${PO}/>` },
-    { id: 'pizza', h: .68, kw: /\b(pizza|food|hungry|dinner|lunch|snack|eat(ing)?)\b|🍕/i, svg: () =>
+    { id: 'pizza', h: .68, act: 'eat', at: [[28, 49]], held: 'slice', kw: /\b(pizza|food|hungry|dinner|lunch|snack|eat(ing)?)\b|🍕/i, svg: () =>
       table() + `<path d="M24 56 L30 22 H70 L76 56Z" fill="#e2b77c" ${PO}/><path d="M33 50 L37 28 H63 L67 50Z" fill="#c9965e" opacity=".45"/>`
       + `<rect x="16" y="49" width="68" height="9" rx="2" fill="#e2b77c" ${PO}/><ellipse cx="50" cy="49" rx="29" ry="6" fill="#f2c14e" ${PO}/>`
       + `<g fill="#d9483b"><circle cx="40" cy="48" r="2.6"/><circle cx="54" cy="47" r="2.6"/><circle cx="62" cy="50" r="2.4"/><circle cx="46" cy="51" r="2.2"/></g>` + steam(50, 40) },
-    { id: 'coffee', h: .66, kw: /\b(coffee|tea|caffeine|morning|tired|sleepy|latte|espresso)\b|☕/i, svg: () =>
+    { id: 'coffee', h: .66, act: 'touch', at: [[34, 42]], body: 'cozy', kw: /\b(coffee|tea|caffeine|morning|tired|sleepy|latte|espresso)\b|☕/i, svg: () =>
       table() + `<path d="M66 32 q16 0 16 12 q0 12 -16 10" fill="none" stroke="#111" stroke-width="8"/><path d="M66 32 q16 0 16 12 q0 12 -16 10" fill="none" stroke="#ff8fb1" stroke-width="3.6"/>`
       + `<path d="M32 26 H68 L66 55 Q50 59 34 55Z" fill="#ff8fb1" ${PO}/><ellipse cx="50" cy="26" rx="18" ry="4.5" fill="#6b3e26" ${PO}/>`
       + `<path d="M50 48 C44 43 44 37 48 37 C49.5 37 50 38.5 50 39.5 C50 38.5 50.5 37 52 37 C56 37 56 43 50 48Z" fill="#fff" stroke="#111" stroke-width="1.5"/>` + steam(50, 18) },
-    { id: 'boba', h: .7, kw: /\b(boba|bubble ?tea|milk ?tea|drink|thirsty|hydrate|water)\b|🧋|💧/i, svg: () =>
+    { id: 'boba', h: .7, act: 'touch', at: [[37, 44]], body: 'cozy', kw: /\b(boba|bubble ?tea|milk ?tea|drink|thirsty|hydrate|water)\b|🧋|💧/i, svg: () =>
       table() + `<path d="M34 26 H66 L62 56 H38Z" fill="#f3d9b1" ${PO}/><g fill="#3b2416"><circle cx="43" cy="51" r="3"/><circle cx="50" cy="52" r="3"/><circle cx="57" cy="51" r="3"/><circle cx="46" cy="46" r="3"/><circle cx="54" cy="46" r="3"/></g>`
       + `<path d="M32 26 Q50 12 68 26Z" fill="#fff" fill-opacity=".85" ${PO}/><path d="M58 4 L51 30" stroke="#111" stroke-width="7.5" stroke-linecap="round"/><path d="M58 4 L51 30" stroke="#ff7ad9" stroke-width="3.8" stroke-linecap="round"/>` },
-    { id: 'popcorn', h: .7, kw: /\b(popcorn|movie|film|watch(ing)?|drama|tea time|lore)\b|🍿/i, svg: () =>
+    { id: 'popcorn', h: .7, act: 'eat', at: [[34, 32]], held: 'kernel', dur: .9, kw: /\b(popcorn|movie|film|watch(ing)?|drama|tea time|lore)\b|🍿/i, svg: () =>
       table() + `<g fill="#fff4c9" ${PO}><circle cx="38" cy="26" r="6"/><circle cx="48" cy="21" r="6.5"/><circle cx="58" cy="24" r="6"/><circle cx="64" cy="30" r="5"/><circle cx="34" cy="31" r="5"/></g>`
       + `<path d="M31 28 H69 L63 57 H37Z" fill="#fff"/><path d="M38 28 H46 L46 57 H41Z M54 28 H62 L60 57 H54Z" fill="#e8192c"/><path d="M31 28 H69 L63 57 H37Z" fill="none" ${PO}/>`
       + `<circle class="pf-hop" cx="72" cy="16" r="3.5" fill="#fff4c9" ${PO}/>` },
-    { id: 'cake', h: .72, kw: /\b(birthday|bday|cake|anniversary|celebrat\w*|party)\b|🎂|🥳/i, svg: () =>
+    { id: 'cake', h: .72, act: 'cheer', body: 'hop', kw: /\b(birthday|bday|cake|anniversary|celebrat\w*|party)\b|🎂|🥳/i, svg: () =>
       table() + [38, 50, 62].map((x, i) => `<rect x="${x - 2}" y="27" width="4" height="12" fill="#4fb6ff" ${PO}/><path class="pf-flame" style="animation-delay:${-i * .12}s" d="M${x} 25 q-4 -5 0 -11 q4 6 0 11Z" fill="#ffb02e" stroke="#111" stroke-width="1.5"/>`).join('')
       + `<rect x="26" y="38" width="48" height="20" rx="3" fill="#ff9ec4" ${PO}/><path d="M26 41 H74 V45 q-4 6 -8 0 q-4 6 -8 0 q-4 6 -8 0 q-4 6 -8 0 q-4 6 -8 0 q-4 6 -8 0Z" fill="#fff" stroke="#111" stroke-width="2"/>`
       + `<path d="M26 41 Q26 38 29 38 H71 Q74 38 74 41" fill="none" ${PO}/>` },
-    { id: 'gift', h: .48, kw: /\b(gift|present|sub(scrib\w*)?|surprise|giveaway)\b|🎁/i, svg: () =>
+    { id: 'gift', h: .48, act: 'touch', at: [[17, 66], [17, 61]], dur: .3, kw: /\b(gift|present|sub(scrib\w*)?|surprise|giveaway)\b|🎁/i, svg: () =>
       `<g class="pf-shake"><rect x="18" y="50" width="64" height="48" rx="3" fill="#8b6cff" ${PO}/><rect x="12" y="40" width="76" height="14" rx="3" fill="#a48bff" ${PO}/>`
       + `<rect x="44" y="40" width="12" height="58" fill="#ffd23f" stroke="#111" stroke-width="2"/><path d="M50 40 C38 22 24 32 36 40Z M50 40 C62 22 76 32 64 40Z" fill="#ffd23f" ${PO}/></g>` },
-    { id: 'balloons', h: .85, vh: 150, kw: /\b(yay|woo+|hype|congrat\w*|congrats|letsgo+|lets go+)\b|🎈|🎉/i, svg: () =>
+    { id: 'balloons', h: .85, vh: 150, act: 'touch', at: [[45, 118]], body: 'cozy', kw: /\b(yay|woo+|hype|congrat\w*|congrats|letsgo+|lets go+)\b|🎈|🎉/i, svg: () =>
       `<path d="M50 140 Q44 110 30 74 M50 140 Q52 100 52 54 M50 140 Q58 112 72 70" fill="none" stroke="#111" stroke-width="1.6"/><path d="M42 148 L45 138 H55 L58 148Z" fill="#555" ${PO}/>`
       + [[30, 52, '#ff4f6d', 0], [52, 32, '#4fb6ff', -.8], [72, 48, '#ffd23f', -1.6]].map(([x, y, c, d]) => `<g class="pf-bob" style="animation-delay:${d}s"><path d="M${x - 3} ${y + 23} l3 -3 l3 3Z" fill="${c}" ${PO}/><ellipse cx="${x}" cy="${y}" rx="18" ry="21" fill="${c}" ${PO}/><ellipse cx="${x - 7}" cy="${y - 8}" rx="4" ry="6" fill="#fff" opacity=".55"/></g>`).join('') },
-    { id: 'boombox', h: .58, kw: /\b(music|song|beat|vibe|vibing|jam|dance|dancing|banger|bop|playlist|radio)\b|🎶|🎵/i, svg: () =>
+    { id: 'boombox', h: .58, act: 'dance', body: 'dance', kw: /\b(music|song|beat|vibe|vibing|jam|dance|dancing|banger|bop|playlist|radio)\b|🎶|🎵/i, svg: () =>
       `<path d="M30 52 Q30 38 50 38 Q70 38 70 52" fill="none" stroke="#111" stroke-width="5"/><rect x="6" y="50" width="88" height="48" rx="7" fill="#ff4f6d" ${PO}/>`
       + `<rect x="38" y="56" width="24" height="10" rx="2" fill="#2d3047" ${PO}/><rect x="44" y="72" width="12" height="4" rx="2" fill="#ffd23f" ${PO}/>`
       + [[24, 0], [76, -.24]].map(([x, d]) => `<g class="pf-pulse" style="animation-delay:${d}s"><circle cx="${x}" cy="78" r="13" fill="#2d3047" ${PO}/><circle cx="${x}" cy="78" r="5" fill="#8a8fb0"/></g>`).join('')
       + notes([[14, 40], [78, 34], [46, 26]]) },
-    { id: 'mic', h: .8, vh: 140, kw: /\b(sing|singing|karaoke|mic|stream(ing)?|podcast|talk(ing)?|speech|announce\w*)\b|🎤/i, svg: () =>
+    { id: 'mic', h: .8, vh: 140, dir: true, act: 'touch', at: [[50, 72]], body: 'sing', kw: /\b(sing|singing|karaoke|mic|stream(ing)?|podcast|talk(ing)?|speech|announce\w*)\b|🎤/i, svg: () =>
       `<path d="M50 118 L30 138 M50 118 L70 138 M50 118 V138" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>`
-      + `<path d="M50 120 V60 L62 44" fill="none" stroke="#111" stroke-width="7" stroke-linejoin="round"/><path d="M50 120 V60 L62 44" fill="none" stroke="#8a8fb0" stroke-width="3" stroke-linejoin="round"/>`
-      + `<g transform="rotate(32 66 34)"><rect x="59" y="16" width="14" height="30" rx="7" fill="#c9cfe8" ${PO}/><path d="M59 26 H73 M59 32 H73 M59 38 H73" stroke="#111" stroke-width="1.4"/></g>`
+      + `<path d="M50 120 V60 L38 44" fill="none" stroke="#111" stroke-width="7" stroke-linejoin="round"/><path d="M50 120 V60 L38 44" fill="none" stroke="#8a8fb0" stroke-width="3" stroke-linejoin="round"/>`
+      + `<g transform="rotate(-32 34 34)"><rect x="27" y="16" width="14" height="30" rx="7" fill="#c9cfe8" ${PO}/><path d="M27 26 H41 M27 32 H41 M27 38 H41" stroke="#111" stroke-width="1.4"/></g>`
       + `<circle class="pf-blink" cx="50" cy="96" r="3.5" fill="#ff3b3b" ${PO}/>`
-      + `<path class="pf-pulse" d="M82 18 q6 8 0 16 M88 12 q10 14 0 28" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round"/>` },
-    { id: 'plant', h: .74, vh: 140, kw: /\b(plant|grass|touch grass|garden|nature|outside|flower)\b|🌱|🌿/i, svg: () =>
+      + notes([[66, 30], [80, 14]]) },
+    { id: 'plant', h: .74, vh: 140, act: 'water', at: [[0, 58]], held: 'can', kw: /\b(plant|grass|touch grass|garden|nature|outside|flower)\b|🌱|🌿/i, svg: () =>
       `<g class="pf-sway"><path d="M50 104 C30 90 20 70 26 50 C40 60 48 80 50 104Z" fill="#4caf50" ${PO}/><path d="M50 104 C70 88 82 68 76 46 C62 58 52 80 50 104Z" fill="#5cc062" ${PO}/>`
       + `<path d="M50 104 C44 80 44 50 52 22 C60 50 58 80 50 104Z" fill="#3e9e48" ${PO}/></g>`
       + `<path d="M30 108 H70 L64 138 H36Z" fill="#d9774b" ${PO}/><rect x="26" y="101" width="48" height="10" rx="3" fill="#e58c5e" ${PO}/>` },
-    { id: 'campfire', h: .54, kw: /\b(fire|cozy|comfy|camp(ing)?|cold|smores?|marshmallows?|hot)\b|🔥/i, svg: () =>
+    { id: 'campfire', h: .54, act: 'roast', at: [[-8, 62]], held: 'stick', body: 'cozy', kw: /\b(fire|cozy|comfy|camp(ing)?|cold|smores?|marshmallows?|hot)\b|🔥/i, svg: () =>
       `<g class="pf-flame"><path d="M50 26 C68 48 72 66 62 82 H38 C28 66 32 48 50 26Z" fill="#ff8a1f" ${PO}/><path d="M50 48 C59 60 61 70 56 82 H44 C39 70 41 60 50 48Z" fill="#ffd23f"/></g>`
       + `<rect x="20" y="80" width="60" height="10" rx="5" fill="#8a5a3b" ${PO} transform="rotate(12 50 85)"/><rect x="20" y="80" width="60" height="10" rx="5" fill="#9c6a47" ${PO} transform="rotate(-12 50 85)"/>`
       + [[14, 95], [26, 97], [74, 97], [86, 95]].map(([x, y]) => `<ellipse cx="${x}" cy="${y}" rx="7" ry="4" fill="#9aa0b8" ${PO}/>`).join('')
       + `<circle class="pf-note" cx="40" cy="22" r="2" fill="#ffb02e"/><circle class="pf-note" style="animation-delay:-1s" cx="58" cy="18" r="2" fill="#ffb02e"/>` },
-    { id: 'cat', h: .42, dir: true, kw: /\b(cats?|kitty|kitten|meow|pspsps+|pet)\b|🐱|🐈/i, svg: () =>
+    { id: 'cat', h: .42, dir: true, act: 'touch', at: [[36, 40], [54, 62]], dur: .9, kw: /\b(cats?|kitty|kitten|meow|pspsps+|pet)\b|🐱|🐈/i, svg: () =>
       `<g class="pf-swish"><path d="M70 92 C90 90 92 70 84 58" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/><path d="M70 92 C90 90 92 70 84 58" fill="none" stroke="#f2a65a" stroke-width="4.4" stroke-linecap="round"/></g>`
       + `<ellipse cx="56" cy="80" rx="20" ry="17" fill="#f2a65a" ${PO}/><path d="M24 48 L22 30 L35 40Z M43 40 L54 30 L52 48Z" fill="#f2a65a" ${PO}/>`
       + `<circle cx="38" cy="54" r="16" fill="#f2a65a" ${PO}/><path d="M26 42 L25 34 L31 39Z M48 39 L52 34 L51 42Z" fill="#ffb3c9"/>`
       + `<ellipse cx="32" cy="53" rx="2.2" ry="3.2" fill="#111"/><ellipse cx="44" cy="53" rx="2.2" ry="3.2" fill="#111"/><path d="M35 60 l3 2.5 l3 -2.5" fill="none" stroke="#111" stroke-width="1.6" stroke-linecap="round"/>`
       + `<ellipse cx="46" cy="96" rx="6" ry="3.5" fill="#f2a65a" ${PO}/><ellipse cx="60" cy="96" rx="6" ry="3.5" fill="#f2a65a" ${PO}/>` },
-    { id: 'duck', h: .4, dir: true, kw: /\b(ducks?|quack|bath|rubber ?duck|debug)\b|🦆/i, svg: () =>
+    { id: 'duck', h: .4, dir: true, act: 'touch', at: [[34, 33], [36, 37]], dur: .45, kw: /\b(ducks?|quack|bath|rubber ?duck|debug)\b|🦆/i, svg: () =>
       `<ellipse cx="50" cy="95" rx="42" ry="5" fill="#8fd3ff" ${PO}/><g class="pf-bob"><path d="M20 70 Q20 92 50 92 Q82 92 84 64 Q70 74 60 70 Q60 56 48 56 Q30 56 20 70Z" fill="#ffd23f" ${PO}/>`
       + `<circle cx="34" cy="46" r="15" fill="#ffd23f" ${PO}/><path d="M20 46 Q8 47 12 54 Q20 55 24 50Z" fill="#ff8a1f" ${PO}/><circle cx="31" cy="42" r="2.6" fill="#111"/>`
       + `<path d="M52 72 Q62 64 70 72" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"/></g>` },
-    { id: 'fishbowl', h: .7, kw: /\b(fish|fishing|blub|swim(ming)?|ocean|sea)\b|🐟|🐠/i, svg: () =>
+    { id: 'fishbowl', h: .7, act: 'feed', at: [[44, 3], [47, 1]], held: 'flakes', dur: .35, kw: /\b(fish|fishing|blub|swim(ming)?|ocean|sea)\b|🐟|🐠/i, svg: () =>
       table() + `<circle cx="50" cy="36" r="21" fill="#bfe9ff" ${PO}/><path d="M31 32 H69" stroke="#8fd3ff" stroke-width="2"/><rect x="40" y="12" width="20" height="5" rx="2" fill="#dff4ff" ${PO}/>`
       + `<g class="pf-swim"><path d="M44 40 Q50 32 58 40 Q50 48 44 40Z M45 40 L38 35 V45Z" fill="#ff8a1f" stroke="#111" stroke-width="2" stroke-linejoin="round"/><circle cx="54" cy="39" r="1.2" fill="#111"/></g>`
       + `<circle class="pf-steam" cx="58" cy="30" r="1.8" fill="none" stroke="#111" stroke-width="1"/>` },
-    { id: 'robot', h: .56, kw: /\b(robots?|ai|bots?|beep|boop|chatgpt|claude|machine)\b|🤖/i, svg: () =>
+    { id: 'robot', h: .56, act: 'bump', at: [[2, 78], [15, 84]], dur: .7, kw: /\b(robots?|ai|bots?|beep|boop|chatgpt|claude|machine)\b|🤖/i, svg: () =>
       `<path d="M50 26 V14" ${PO}/><circle class="pf-blink" cx="50" cy="11" r="4" fill="#ff4f6d" ${PO}/>`
       + `<path d="M26 66 Q14 70 16 84 M74 66 Q86 70 84 84" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/><path d="M26 66 Q14 70 16 84 M74 66 Q86 70 84 84" fill="none" stroke="#aab3d9" stroke-width="3" stroke-linecap="round"/>`
       + `<rect x="30" y="86" width="14" height="11" rx="3" fill="#555" ${PO}/><rect x="56" y="86" width="14" height="11" rx="3" fill="#555" ${PO}/>`
       + `<rect x="26" y="56" width="48" height="33" rx="8" fill="#aab3d9" ${PO}/><rect x="40" y="64" width="20" height="12" rx="3" fill="#2d3047" ${PO}/><rect class="pf-blink" style="animation-delay:-.5s" x="44" y="68" width="5" height="4" fill="#39d36b"/>`
       + `<rect x="30" y="26" width="40" height="28" rx="8" fill="#c9cfe8" ${PO}/><g class="pf-flicker"><circle cx="42" cy="40" r="5" fill="#4fb6ff" ${PO}/><circle cx="58" cy="40" r="5" fill="#4fb6ff" ${PO}/></g>` },
-    { id: 'trophy', h: .7, vh: 120, kw: /\b(win|won|winner|victory|champ\w*|clutch|ez|first|pog|poggers)\b|🏆/i, svg: () =>
+    { id: 'trophy', h: .7, vh: 120, act: 'cheer', body: 'hop', kw: /\b(win|won|winner|victory|champ\w*|clutch|ez|first|pog|poggers)\b|🏆/i, svg: () =>
       `<path d="M28 38 Q12 38 16 54 Q20 64 32 62 M72 38 Q88 38 84 54 Q80 64 68 62" fill="none" stroke="#111" stroke-width="7"/><path d="M28 38 Q12 38 16 54 Q20 64 32 62 M72 38 Q88 38 84 54 Q80 64 68 62" fill="none" stroke="#ffc21a" stroke-width="3"/>`
       + `<path d="M44 96 H56 L54 78 H46Z" fill="#ffc21a" ${PO}/><path d="M28 30 H72 Q72 76 50 80 Q28 76 28 30Z" fill="#ffd23f" ${PO}/><text x="50" y="62" text-anchor="middle" font-family="Bangers, sans-serif" font-size="22" fill="#c98a00">1</text>`
       + `<rect x="30" y="96" width="40" height="22" rx="2" fill="#5b3a29" ${PO}/><rect x="38" y="102" width="24" height="7" fill="#ffd23f"/>`
       + twinkle(18, 24, 6) + twinkle(84, 20, 5, -.5) + twinkle(80, 82, 4, -.25) },
-    { id: 'lavalamp', h: .82, vh: 130, kw: /\b(chill|relax(ing)?|lofi|lo-fi|calm|cozy vibes|groovy|trippy)\b/i, svg: () =>
+    { id: 'lavalamp', h: .82, vh: 130, act: 'chill', body: 'sway', kw: /\b(chill|relax(ing)?|lofi|lo-fi|calm|cozy vibes|groovy|trippy)\b/i, svg: () =>
       table(130) + `<path d="M40 72 L44 30 Q50 26 56 30 L60 72Z" fill="#ff9ec4" ${PO} transform="translate(0 15)"/>`
       + `<g transform="translate(0 15)"><ellipse class="pf-blob" cx="50" cy="62" rx="6" ry="5" fill="#ff3b7f"/><ellipse class="pf-blob" style="animation-delay:-2s" cx="49" cy="48" rx="4" ry="4.5" fill="#ff3b7f"/></g>`
       + `<path d="M44 30 L46 18 H54 L56 30Z" fill="#6b4bff" ${PO} transform="translate(0 15)"/><path d="M36 86 L40 72 H60 L64 86Z" fill="#6b4bff" ${PO} transform="translate(0 1)"/>` },
-    { id: 'ghost', h: .64, kw: /\b(spooky|ghost|boo+|scary|haunted|halloween|creepy)\b|👻/i, svg: () =>
+    { id: 'ghost', h: .64, act: 'scared', body: 'shiver', kw: /\b(spooky|ghost|boo+|scary|haunted|halloween|creepy)\b|👻/i, svg: () =>
       `<ellipse cx="50" cy="96" rx="22" ry="3" fill="#000" opacity=".15"/><g class="pf-bob"><path d="M22 84 V44 Q22 14 50 14 Q78 14 78 44 V84 L70 76 L62 84 L54 76 L46 84 L38 76 L30 84Z" fill="#fff" fill-opacity=".92" ${PO}/>`
       + `<ellipse cx="40" cy="42" rx="4" ry="6" fill="#111"/><ellipse cx="60" cy="42" rx="4" ry="6" fill="#111"/><ellipse cx="50" cy="58" rx="5" ry="6.5" fill="#111"/>`
       + `<ellipse cx="33" cy="52" rx="5" ry="3" fill="#ff9ec4" opacity=".7"/><ellipse cx="67" cy="52" rx="5" ry="3" fill="#ff9ec4" opacity=".7"/></g>` },
   ];
+
+  // What the monster does with its prop (the act on each prop above). at lists the spots on the
+  // prop its hand goes to, frame by frame, drawn for a prop on the right (atL for one on the left,
+  // or else mirrored); the panel layout turns them into the monster's own units and stands it close
+  // enough to reach. Things it holds are drawn around its hand, pointing toward the prop (s).
+  const HO = 'stroke="#111" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"';
+  const HELD = {
+    slice: (x, y, s, r = 0) => `<g transform="translate(${f1(x)} ${f1(y)}) rotate(${s * r})"><path d="M-8 -3 L8 -3 L1 -24Z" fill="#f2c14e" ${HO}/>`
+      + `<path d="M-9 -5 Q0 -9 9 -5 L9 0 Q0 -4 -9 0Z" fill="#e2b77c" ${HO}/><circle cx="0" cy="-11" r="2.3" fill="#d9483b"/><circle cx="2.5" cy="-18" r="1.6" fill="#d9483b"/></g>`,
+    kernel: (x, y) => `<g fill="#fff4c9" ${HO}><circle cx="${f1(x - 2)}" cy="${f1(y - 8)}" r="3.6"/><circle cx="${f1(x + 2.5)}" cy="${f1(y - 9)}" r="3.4"/><circle cx="${f1(x)}" cy="${f1(y - 12)}" r="3.2"/></g>`,
+    pad: (x, y, s) => { const cx = x - s * 15; return `<rect x="${f1(cx - 21)}" y="${f1(y - 7)}" width="42" height="15" rx="7" fill="#3b3f5c" ${HO}/>`
+      + `<path d="M${f1(cx - 8)} ${f1(y - 4)} v7 M${f1(cx - 11.5)} ${f1(y - .5)} h7" stroke="#fff" stroke-width="2.2"/><circle cx="${f1(cx + 6)}" cy="${f1(y + 1)}" r="2.2" fill="#ff4f6d"/><circle cx="${f1(cx + 10)}" cy="${f1(y - 2.5)}" r="2.2" fill="#4fb6ff"/>`; },
+    can: (x, y, s) => `<g transform="translate(${f1(x)} ${f1(y)}) scale(${s * 1.45} 1.45) rotate(16)"><path d="M8 11 L24 -2" stroke="#111" stroke-width="6" stroke-linecap="round"/><path d="M8 11 L24 -2" stroke="#4fb6ff" stroke-width="2.6" stroke-linecap="round"/>`
+      + `<path d="M-6 3 Q0 -9 6 3" fill="none" stroke="#111" stroke-width="3"/><rect x="-10" y="2" width="20" height="15" rx="3" fill="#4fb6ff" ${HO}/><rect x="22" y="-6" width="5" height="8" rx="1.5" fill="#4fb6ff" ${HO} transform="rotate(-40 24.5 -2)"/>`
+      + [0, 1, 2].map(i => `<circle class="a-drop" style="animation-delay:${-i * .3}s" cx="${27 + i * 2}" cy="${2 + i}" r="1.8" fill="#4fb6ff"/>`).join('') + `</g>`,
+    stick: (x, y, s) => `<g transform="translate(${f1(x)} ${f1(y)}) scale(${s} 1)"><path d="M-3 2 L46 -6" stroke="#111" stroke-width="4.6" stroke-linecap="round"/><path d="M-3 2 L46 -6" stroke="#9c6a47" stroke-width="2" stroke-linecap="round"/>`
+      + `<rect x="42" y="-14" width="11" height="10" rx="3.5" fill="#fff4e0" ${HO} transform="rotate(-10 47.5 -9)"/><path d="M43 -8 h9" stroke="#d9a066" stroke-width="2.4" transform="rotate(-10 47.5 -9)"/></g>`,
+    flakes: (x, y, s) => [0, 1, 2].map(i => `<circle class="a-drop" style="animation-delay:${-i * .25}s" cx="${f1(x + s * (2 + i * 3) - 3)}" cy="${f1(y + 7)}" r="1.6" fill="#e0703c" stroke="#111" stroke-width=".8"/>`).join(''),
+  };
+  function propAct(a, k) {
+    const s = a.s, pts = a.pts || [], item = HELD[a.held];
+    const on = (o) => pts.map(at => ({ at, item, ...o }));
+    switch (a.act) {
+      case 'eat':   // pick it up off the prop, then up to the mouth
+        return { near: [{ at: pts[0], item }, { at: [50 + s * (k.mw + 10), k.my + 12], item: (x, y) => item(x, y, s, -70) }], dur: a.dur || 1.2 };
+      case 'game': {
+        const y = k.sy + 14, hold = (dy, it) => ({ at: [50 + s * 15, y + dy], item: it });
+        return { near: [hold(0, item), hold(-2, item)], far: [{ at: [50 - s * 15, y] }, { at: [50 - s * 15, y + 1.5] }], dur: .22 };
+      }
+      case 'dance': return { near: ['up', 'down'], far: ['down', 'up'], dur: .48 };
+      case 'cheer': return { near: ['up', 'wave'], far: ['wave', 'up'], dur: .36 };
+      case 'chill': return { near: ['clasp'], far: ['clasp'] };
+      case 'scared': return { near: [{ at: [50 + s * k.W * .7, k.my + 4] }], far: [{ at: [50 - s * k.W * .7, k.my + 4] }] };
+      case 'bump': return { near: on({ fist: true }), dur: a.dur };
+      default: return { near: on(), dur: a.dur };   // touch it (and hold whatever it holds there)
+    }
+  }
   let lastProp = '';
   function pickProp(it) {
     const text = (it.tokens || []).map(t => t.t === 'text' ? t.v : t.code || '').join(' ');
@@ -1396,10 +1470,13 @@
   function drawChar(c, p) {
     const who = chatters.get(c.key);
     const look = p.chars.length === 2 || p.prop ? (c.side === 'L' ? 1 : -1) : 0;   // face each other, or the prop
-    const reach = p.prop ? look : 0, sig = c.expr + look + '/' + reach;
+    const sig = c.expr + look + '/' + JSON.stringify(c.act);
     if (c.sig === sig) return;
     c.sig = sig;
-    c.art.innerHTML = charSVG(charSpec(who.name), who.pal, { expr: c.expr, look, reach, crown: CFG.crown && who.owner });
+    c.art.innerHTML = charSVG(charSpec(who.name), who.pal, { expr: c.expr, look, act: c.act, crown: CFG.crown && who.owner });
+    // and its whole body joins in: dancing, swaying, hopping
+    const body = c.act && c.act.body ? 'a-' + c.act.body : '';
+    if (c.body !== body) { if (c.body) c.el.classList.remove(c.body); if (body) c.el.classList.add(body); c.body = body; }
   }
 
   function addBubble(p, it) {
@@ -1488,17 +1565,33 @@
     p.el.style.setProperty('--ch', ch + 'px');
     p.el.style.setProperty('--cw', cw + 'px');
     const yb = H * .8, Lb = p.L(yb), span = p.R(yb) - Lb;
-    for (const c of p.chars) {
-      c.x = Lb + span * (n === 1 ? .5 + p.off : c.side === 'L' ? .27 : .73);
-      c.el.style.left = (c.x - cw / 2) + 'px';
-      c.headTop = H + ch * .03 - ch + ch * (33 / 148);
-      drawChar(c, p);
-    }
-    if (p.prop) {
-      const pr = p.prop, vh = pr.spec.vh || 100, h = ch * pr.spec.h, w = h * 100 / vh;
+    const pr = p.prop;
+    if (pr) {
+      const vh = pr.spec.vh || 100, h = ch * pr.spec.h, w = h * 100 / vh;
       // on its side of the panel, but kept inside the slanted frame at floor level
       const x = clamp(Lb + span * (pr.side === 'L' ? .27 : .73), Math.max(p.L(H), p.L(H - h)) + w / 2 + 2, Math.min(p.R(H), p.R(H - h)) - w / 2 - 2);
       Object.assign(pr.el.style, { left: (x - w / 2) + 'px', width: w + 'px', height: h + 'px' });
+      Object.assign(pr, { x, w, h, vh });
+    }
+    for (const c of p.chars) {
+      c.x = Lb + span * (n === 1 ? .5 + p.off : c.side === 'L' ? .27 : .73);
+      c.act = null;
+      if (pr) {
+        // Busy with the prop. When its hand goes onto the prop, it stands just close enough to
+        // reach the first spot, and every spot is handed over in its own units (112 x 148 art).
+        const sp = pr.spec, s = pr.side === 'R' ? 1 : -1;
+        const at = pr.side === 'R' ? sp.at : sp.atL || (sp.at && sp.at.map(([x, y]) => [100 - x, y]));
+        const onScreen = ([x, y]) => [pr.x + (x / 100 - .5) * pr.w, (pr.vh - y) / pr.vh * pr.h];   // y is up from the floor
+        if (at) {
+          const reach = (BODIES[charSpec(chatters.get(c.key).name).body].W + 17) / 112 * cw;
+          c.x = clamp(onScreen(at[0])[0] - s * reach, p.L(H * .5) + cw * .36, p.R(H * .5) - cw * .36);
+        }
+        c.act = { act: sp.act, held: sp.held, dur: sp.dur, body: sp.body, s,
+          pts: at && at.map(pt => { const [x, y] = onScreen(pt); return [f1(50 + (x - c.x) / cw * 112), f1(138 - y / ch * 148)]; }) };
+      }
+      c.el.style.left = (c.x - cw / 2) + 'px';
+      c.headTop = H + ch * .03 - ch + ch * (33 / 148);
+      drawChar(c, p);
     }
     // Name tags get the whole width under their character (their half of the panel when there are
     // two), centred on the character but nudged in so long names stay inside the frame.
@@ -1550,8 +1643,8 @@
       if (b.kind === 'shout') y += 9;
       const lo = Math.max(p.L(y), p.L(y + h)) + pad, hi = Math.min(p.R(y), p.R(y + h)) - pad;
       let x;
+      // over the speaker; with two in the panel, a wide one still ends up against its own side
       if (b.kind === 'narr') x = lo;
-      else if (n === 2) x = c.side === 'L' ? lo : hi - w;
       else x = clamp(c.x - w / 2, lo, hi - w);
       x = Math.max(lo - pad + 2, Math.min(x, hi - w));
       b.el.style.left = x + 'px';
@@ -1617,7 +1710,8 @@
       right.push([px + ty * wd, py - tx * wd]); left.push([px - ty * wd, py + tx * wd]);
     }
     right[0] = [bx + hb, H]; left[0] = [bx - hb, H];
-    const pts = [...right, ...left.reverse().slice(1)];
+    // a tail heading off nearly sideways would tuck its top edge back up inside the bubble
+    const pts = [...right, ...left.reverse().slice(1)].map(([x, y]) => [x, Math.max(y, H)]);
     // and if an extreme angle would still fold the outline over itself, a straight wedge never can
     return { bx, hb, pts: crosses(pts) ? [[bx + hb, H], [tip.x, tip.y], [bx - hb, H]] : pts };
   }
