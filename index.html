@@ -348,7 +348,7 @@
     { k: 'cmds', label: 'Show !commands', type: 'bool', def: false },
     { k: 'firsttime', label: 'Show first-time chatters', type: 'bool', def: false, help: 'Twitch flags these; spam bots usually show up this way.' },
     { k: 'botlist', label: 'Hide known bots', type: 'bool', def: true, help: 'Public TwitchInsights list (needs the overlay hosted, not a local file).' },
-    { k: 'ignore', label: 'Always hide these users', type: 'area', def: 'nightbot, streamelements, streamlabs, moobot, fossabot, wizebot', help: 'Comma or line separated.' },
+    { k: 'ignore', label: 'Always hide these users', type: 'area', def: 'nightbot, streamelements, streamlabs, moobot, fossabot, wizebot, soundalerts, sery_bot, kofistreambot, botrixoficial, commanderroot', help: 'Comma or line separated.' },
   ];
   const FIELD = Object.fromEntries(FIELDS.filter(f => f.k).map(f => [f.k, f]));
   const Q = new URLSearchParams(location.search);
